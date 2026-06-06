@@ -1,0 +1,23 @@
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace "com.idm.travelplanner"
+    compileSdk 35
+
+    ndkVersion = "28.2.13676358"
+
+    defaultConfig {
+        applicationId "com.idm.travelplanner"
+        minSdkVersion flutter.minSdkVersion
+        targetSdk 35
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+    }
+}
+
+flutter {
+    source "../.."
+}

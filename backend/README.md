@@ -58,6 +58,12 @@ Authorization: Bearer <WAYFARE_OPS_TOKEN>
 Metrics are aggregate route/status counters and timings. They intentionally do
 not include request bodies, identifiers, tokens, or concrete resource ids.
 
+Schema state is exposed at `GET /ops/schema` with the same
+`WAYFARE_OPS_TOKEN` authorization. The response includes the current SQLite
+`PRAGMA user_version` and the applied `schema_migrations` records with
+version, name, checksum, and applied time. Use it during deployment checks to
+confirm the running database matches the expected backend schema.
+
 ## SQLite Backups
 
 Create a verified local SQLite backup:
@@ -88,11 +94,13 @@ deployment platform or job runner.
 - `ItineraryItem`: time, place, activity, note, order, status.
 - `SavedTrip`: saved destination/itinerary references and folder grouping.
 - `Feedback`: category, description, status, created time.
+- `SchemaMigration`: schema version, migration name, checksum, and applied time.
 
 ## API Draft
 
 - `GET /health`
 - `GET /ops/metrics`
+- `GET /ops/schema`
 - `POST /auth/send-code`
 - `POST /auth/login` with `identifier`, `phone`, or `email`. Unknown identifiers are automatically registered and signed in. The response includes an opaque Bearer `token` and `expiresAt`.
 - `POST /auth/logout`
@@ -128,6 +136,6 @@ The server derives the user id from a hashed, server-side session. Client-provid
 ## Next Backend Steps
 
 1. Replace the built-in session table with a production identity provider when team or compliance needs require SSO, MFA, or centralized audit.
-2. Move SQLite migrations, backup scheduling/storage, and rate-limit counters to production-grade infrastructure for multi-node deployments.
+2. Move migration review/promotion, backup scheduling/storage, and rate-limit counters to production-grade infrastructure for multi-node deployments.
 3. Split the growing server file into route/store/model modules.
 4. Add a map provider adapter for the final Web AMap integration.

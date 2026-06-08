@@ -214,6 +214,8 @@ Test priorities:
 - Operational metrics must stay aggregate and protected by `WAYFARE_OPS_TOKEN`;
   do not log or expose request bodies, tokens, identifiers, or concrete
   resource ids.
+- SQLite schema changes must update the schema version, migration signature,
+  migration tests, and release readiness checks in the same change.
 - SQLite backups must be generated through the verified backend backup command,
   stored outside build/runtime cache directories, and kept out of git.
 - Android release builds must use release signing credentials from environment

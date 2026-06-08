@@ -143,10 +143,13 @@ class _ReadinessChecker {
         'ServerTelemetry',
         'WAYFARE_OPS_TOKEN',
         '_requireOpsToken',
+        'schema_migrations',
+        'schemaVersion',
+        '_recordSchemaMigration',
       ],
       'backend-api-hardening',
-      'Backend must keep configurable auth, CORS, revocable sessions, rate limiting, mutation validation, and protected metrics wired.',
-      'Restore the auth/session/CORS/rate-limit/schema-validation/ops-metrics hardening before publishing.',
+      'Backend must keep configurable auth, CORS, revocable sessions, rate limiting, mutation validation, protected metrics, and schema migration tracking wired.',
+      'Restore the auth/session/CORS/rate-limit/schema-validation/ops-metrics/schema-migration hardening before publishing.',
     );
     _requireContains(
       'backend/bin/backup.dart',

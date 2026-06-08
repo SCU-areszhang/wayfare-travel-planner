@@ -36,6 +36,29 @@ void main() {
     expect(validEmail.json['identifier'], 'demo@wayfare.local');
   });
 
+  test('health and ops schema expose current migration state', () async {
+    final health = await server.get('/health');
+    expect(health.statusCode, HttpStatus.ok);
+    expect(health.json['schemaVersion'], 1);
+
+    final unauthenticated = await server.get('/ops/schema');
+    expect(unauthenticated.statusCode, HttpStatus.unauthorized);
+
+    final schema = await server.get(
+      '/ops/schema',
+      token: 'test-ops-token-for-metrics',
+    );
+    expect(schema.statusCode, HttpStatus.ok);
+    expect(schema.json['schemaVersion'], 1);
+    final migrations = schema.json['migrations'] as List<Object?>;
+    expect(migrations, hasLength(1));
+    final migration = migrations.single as Map<String, Object?>;
+    expect(migration['version'], 1);
+    expect(migration['name'], 'core_schema_20260608');
+    expect(migration['checksum']?.toString(), hasLength(64));
+    expect(migration['applied_at'], isA<String>());
+  });
+
   test('search validates non-numeric limits and clamps oversized limits',
       () async {
     final invalid = await server.get('/search?q=west&limit=many');

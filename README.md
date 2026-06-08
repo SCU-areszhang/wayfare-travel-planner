@@ -59,6 +59,8 @@ a local development signing secret and reports `auth: development` from `/health
 The backend also enables per-client fixed-window rate limiting for auth, search,
 and write routes by default; see `backend/README.md` for environment overrides.
 Set `WAYFARE_OPS_TOKEN` to enable protected aggregate metrics at `/ops/metrics`.
+The same ops token protects `/ops/schema`, which reports the SQLite schema
+version and applied migration checksums for deployment verification.
 Set `WAYFARE_BACKUP_DIR` and run `dart run bin/backup.dart` from `backend/` to
 create verified SQLite backups with manifests.
 

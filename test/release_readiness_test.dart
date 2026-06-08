@@ -95,11 +95,14 @@ const amapAndroidKey = String.fromEnvironment('AMAP_ANDROID_KEY');
   _write(root, 'backend/bin/server.dart', '''
 const env = 'WAYFARE_AUTH_SECRET WAYFARE_ALLOWED_ORIGINS';
 const sessions = 'sessions';
+const migrations = 'schema_migrations';
 const rateLimit = 'WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW';
 class RateLimiter {}
 class ServerTelemetry {}
 void revokeSession() {}
 void _requireOpsToken() {}
+void _recordSchemaMigration() {}
+int schemaVersion() => 1;
 void _validateCreateItinerary() {}
 void _validateCreateSavedItem() {}
 const opsToken = 'WAYFARE_OPS_TOKEN';

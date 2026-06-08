@@ -414,6 +414,20 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added backup tests for manifest creation, backup readability, SHA-256 metadata, and missing/empty database rejection; updated release readiness fixtures.
 - Acceptance link: `dart test` proves local backup generation produces a readable, verified SQLite copy and manifest.
 
+## SQLite Migration-Tracking Iteration
+
+### A05/A07
+
+- Files: `backend/bin/server.dart`, `backend/README.md`, `README.md`, `AGENTS.md`, `tool/release_readiness.dart`
+- Change: Added a `schema_migrations` table, checksumed schema signature, SQLite `PRAGMA user_version`, `/health` schema version reporting, protected `GET /ops/schema`, and release readiness checks for migration tracking.
+- Acceptance link: Deployments can verify the running database schema state before promoting a backend.
+
+### A06
+
+- Files: `backend/test/server_test.dart`, `test/release_readiness_test.dart`
+- Change: Added regression coverage for `/health` schema version output, unauthorized `/ops/schema` rejection, authorized migration metadata output, and release readiness fixture coverage.
+- Acceptance link: `dart test` proves schema state is tracked and protected by the ops token.
+
 ## Verification Results
 
 Runnable:
@@ -482,7 +496,7 @@ backend: No issues found.
 
 ```text
 dart test
-backend: 13 tests passed.
+backend: 14 tests passed.
 ```
 
 ```text
@@ -524,6 +538,6 @@ Residual risk:
 - Android toolchain is now usable for debug APK builds on this machine, but Android release/appbundle verification still needs real signing credentials and production AMap/API/auth values supplied by CI or a release workstation.
 - Android debug builds currently pass with a Flutter warning that the app and `dynamic_color` still apply Kotlin Gradle Plugin; future Flutter releases may require migration to Built-in Kotlin.
 - iOS/macOS builds still need full Xcode and CocoaPods.
-- Backend is still SQLite-based and single-process; production deployment still needs migration discipline, scheduled external backup storage/retention, external log/metric shipping, distributed/shared rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
+- Backend is still SQLite-based and single-process; production deployment still needs migration review/promotion, scheduled external backup storage/retention, external log/metric shipping, distributed/shared rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
 - Frontend search concurrency, map point confirmation UX, broader widget/E2E tests, and API parsing strictness remain future commercial hardening work.
 - PDF and DOCX layout fidelity could not be visually rendered because Poppler and LibreOffice are missing.

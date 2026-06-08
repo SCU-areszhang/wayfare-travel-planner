@@ -62,6 +62,7 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
         'status': 'ok',
         'storage': 'SQLite',
         'database': _databaseLabel(store.path),
+        'schemaVersion': store.schemaVersion(),
         'userCount': store.userCount(),
         'auth': _authMode(),
       });
@@ -70,6 +71,14 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     if (method == 'GET' && _matches(path, ['ops', 'metrics'])) {
       _requireOpsToken(request);
       return _json(request, _telemetry.snapshot());
+    }
+
+    if (method == 'GET' && _matches(path, ['ops', 'schema'])) {
+      _requireOpsToken(request);
+      return _json(request, {
+        'schemaVersion': store.schemaVersion(),
+        'migrations': store.schemaMigrations(),
+      });
     }
 
     if (method == 'POST' && _matches(path, ['auth', 'login'])) {
@@ -614,6 +623,14 @@ class SqliteStore {
   void _migrate() {
     _db.execute('PRAGMA foreign_keys = ON');
     _db.execute('''
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      )
+    ''');
+    _db.execute('''
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         identifier TEXT NOT NULL UNIQUE,
@@ -709,6 +726,7 @@ class SqliteStore {
       )
     ''');
     _ensureColumn('saved_trips', 'label', "TEXT NOT NULL DEFAULT 'Saved item'");
+    _recordSchemaMigration();
   }
 
   void _seed() {
@@ -855,6 +873,25 @@ class SqliteStore {
   }
 
   int userCount() => _count('users');
+
+  int schemaVersion() {
+    final result = _db.select('PRAGMA user_version');
+    final value = result.isEmpty ? 0 : result.first.values.first;
+    return value is int ? value : int.tryParse(value.toString()) ?? 0;
+  }
+
+  List<Map<String, Object?>> schemaMigrations() {
+    return _db
+        .select(
+          '''
+          SELECT version, name, checksum, applied_at
+          FROM schema_migrations
+          ORDER BY version
+          ''',
+        )
+        .map(_row)
+        .toList(growable: false);
+  }
 
   Map<String, Object?> loginOrRegister(String identifier) {
     final existing = _db.select(
@@ -2451,6 +2488,33 @@ class SqliteStore {
     }
   }
 
+  void _recordSchemaMigration() {
+    final checksum = _schemaChecksum();
+    final existing = _db.select(
+      'SELECT checksum FROM schema_migrations WHERE version = ?',
+      [_schemaVersion],
+    );
+    if (existing.isNotEmpty && existing.first['checksum'] != checksum) {
+      throw StateError(
+        'Schema migration checksum mismatch for version $_schemaVersion',
+      );
+    }
+    _db.execute(
+      '''
+      INSERT OR IGNORE INTO schema_migrations
+        (version, name, checksum, applied_at)
+      VALUES (?, ?, ?, ?)
+      ''',
+      [
+        _schemaVersion,
+        _schemaMigrationName,
+        checksum,
+        DateTime.now().toUtc().toIso8601String(),
+      ],
+    );
+    _db.execute('PRAGMA user_version = $_schemaVersion');
+  }
+
   Map<String, Object?> _dayById(
     List<Map<String, Object?>> days,
     String dayId,
@@ -2655,6 +2719,9 @@ String _routeTemplate(String method, List<String> path) {
   if (_matches(path, ['ops', 'metrics'])) {
     return '/ops/metrics';
   }
+  if (_matches(path, ['ops', 'schema'])) {
+    return '/ops/schema';
+  }
   if (path.first == 'auth') {
     return '/auth/${path.length > 1 ? path[1] : ':action'}';
   }
@@ -2705,6 +2772,23 @@ String _id(String prefix) {
 
 const _maxBodyBytes = 64 * 1024;
 const _localDevelopmentSecret = 'wayfare-local-development-secret-change-me';
+const _schemaVersion = 1;
+const _schemaMigrationName = 'core_schema_20260608';
+const _schemaSignature = '''
+schema_migrations(version,name,checksum,applied_at);
+users(id,identifier,display_name,created_at,last_login_at);
+sessions(token_hash,user_id,created_at,expires_at,revoked_at);
+destinations(id,name,city,theme,summary,duration,tags_json,priority,lat,lng);
+map_places(id,name,category,description,rating,lat,lng);
+scenic_spots(id,name,province,city,district,level,kind,intro,aliases_json,image_url,lat,lng);
+itineraries(id,user_id,title,destination,start_date,end_date,status,days_json,created_at,updated_at);
+saved_trips(id,user_id,type,ref_id,label,folder,created_at);
+feedback(id,user_id,category,description,status,created_at);
+''';
+
+String _schemaChecksum() {
+  return sha256.convert(utf8.encode(_schemaSignature)).toString();
+}
 
 int _environmentInt(
   Map<String, String> environment,

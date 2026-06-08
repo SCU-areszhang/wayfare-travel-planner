@@ -208,6 +208,9 @@ Test priorities:
 - Do not include secrets in logs, screenshots, docs, tests, or final summaries.
 - Public resource IDs are prototype IDs; use stronger random IDs before production.
 - Backend validation must reject malformed JSON, empty identifiers, empty feedback, and invalid request shapes with client errors.
+- Backend abuse controls must keep auth, search, and write rate limiting enabled
+  by default; proxy-derived client IPs are allowed only when the proxy is
+  trusted and overwrites forwarded headers.
 - Android release builds must use release signing credentials from environment
   variables or ignored `android/key.properties`; debug signing is not acceptable
   for release artifacts.

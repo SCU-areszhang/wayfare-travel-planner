@@ -358,6 +358,20 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Documented release readiness commands, production configuration expectations, Android signing inputs, and the updated role/SOP gate.
 - Acceptance link: Future implementation and release work has traceable commands and acceptance conditions.
 
+## Backend Abuse-Control Iteration
+
+### A05/A07
+
+- Files: `backend/bin/server.dart`, `backend/README.md`, `AGENTS.md`, `tool/release_readiness.dart`
+- Change: Added configurable fixed-window in-memory rate limiting for auth, search, and write routes; added 429 JSON responses with `Retry-After` and `X-RateLimit-*` headers; documented environment variables and trusted-proxy behavior; and extended release readiness to check for backend rate limiting.
+- Acceptance link: Login/code, search, and write endpoints now have default abuse controls instead of unlimited request volume.
+
+### A06
+
+- Files: `backend/test/server_test.dart`, `test/release_readiness_test.dart`
+- Change: Added backend regression coverage for configured auth throttling and updated release readiness fixtures.
+- Acceptance link: `dart test` proves the backend returns 429 after the configured auth limit.
+
 ## Verification Results
 
 Runnable:
@@ -426,7 +440,7 @@ backend: No issues found.
 
 ```text
 dart test
-backend: 8 tests passed.
+backend: 9 tests passed.
 ```
 
 ```text
@@ -460,7 +474,8 @@ Backend curl smoke proved login returned a signed token, unauthenticated /me ret
 Residual risk:
 
 - Android toolchain is now usable for debug APK builds on this machine, but Android release/appbundle verification still needs real signing credentials and production AMap/API/auth values supplied by CI or a release workstation.
+- Android debug builds currently pass with a Flutter warning that the app and `dynamic_color` still apply Kotlin Gradle Plugin; future Flutter releases may require migration to Built-in Kotlin.
 - iOS/macOS builds still need full Xcode and CocoaPods.
-- Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, monitoring, rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
+- Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, monitoring, distributed/shared rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
 - Frontend search concurrency, map point confirmation UX, broader widget/E2E tests, and API parsing strictness remain future commercial hardening work.
 - PDF and DOCX layout fidelity could not be visually rendered because Poppler and LibreOffice are missing.

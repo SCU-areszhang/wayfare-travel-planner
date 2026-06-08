@@ -134,10 +134,12 @@ class _ReadinessChecker {
         'sessions',
         'revokeSession',
         '_sessionTokenHash',
+        'RateLimiter',
+        'WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW',
       ],
       'backend-session-hardening',
-      'Backend must keep configurable auth, CORS, and revocable sessions wired.',
-      'Restore the auth/session/CORS hardening before publishing.',
+      'Backend must keep configurable auth, CORS, revocable sessions, and rate limiting wired.',
+      'Restore the auth/session/CORS/rate-limit hardening before publishing.',
     );
     _requireContains(
       'lib/main.dart',

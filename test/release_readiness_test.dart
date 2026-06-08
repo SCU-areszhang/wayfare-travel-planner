@@ -91,6 +91,8 @@ const amapAndroidKey = String.fromEnvironment('AMAP_ANDROID_KEY');
   _write(root, 'backend/bin/server.dart', '''
 const env = 'WAYFARE_AUTH_SECRET WAYFARE_ALLOWED_ORIGINS';
 const sessions = 'sessions';
+const rateLimit = 'WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW';
+class RateLimiter {}
 void revokeSession() {}
 String _sessionTokenHash(String token) => token;
 ''');

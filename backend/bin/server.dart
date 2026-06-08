@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 final _secureRandom = math.Random.secure();
+final _rateLimiter = RateLimiter.fromEnvironment(Platform.environment);
 
 void main(List<String> args) async {
   final port = int.tryParse(
@@ -39,6 +40,10 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
   try {
     final path = request.uri.pathSegments;
     final method = request.method;
+    final rateLimit = _rateLimiter.check(request, method, path);
+    if (!rateLimit.allowed) {
+      return _tooManyRequests(request, rateLimit);
+    }
 
     if (method == 'GET' && path.isEmpty) {
       return _json(request, {
@@ -307,6 +312,203 @@ class UnauthorizedException implements Exception {
   const UnauthorizedException(this.message);
 
   final String message;
+}
+
+class RateLimitDecision {
+  const RateLimitDecision({
+    required this.allowed,
+    required this.ruleId,
+    required this.limit,
+    required this.remaining,
+    required this.resetAt,
+  });
+
+  final bool allowed;
+  final String ruleId;
+  final int limit;
+  final int remaining;
+  final DateTime resetAt;
+
+  int get retryAfterSeconds {
+    final seconds = resetAt.difference(DateTime.now().toUtc()).inSeconds;
+    return math.max(1, seconds);
+  }
+}
+
+class RateLimitRule {
+  const RateLimitRule({
+    required this.id,
+    required this.limit,
+    required this.matches,
+  });
+
+  final String id;
+  final int limit;
+  final bool Function(String method, List<String> path) matches;
+}
+
+class RateLimiter {
+  RateLimiter({
+    required this.enabled,
+    required this.window,
+    required this.rules,
+    required this.trustProxyHeaders,
+  });
+
+  factory RateLimiter.fromEnvironment(Map<String, String> environment) {
+    final windowSeconds = _environmentInt(
+      environment,
+      'WAYFARE_RATE_LIMIT_WINDOW_SECONDS',
+      fallback: 60,
+      min: 1,
+      max: 3600,
+    );
+    final authLimit = _environmentInt(
+      environment,
+      'WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW',
+      fallback: 12,
+      min: 1,
+      max: 10000,
+    );
+    final searchLimit = _environmentInt(
+      environment,
+      'WAYFARE_RATE_LIMIT_SEARCH_PER_WINDOW',
+      fallback: 120,
+      min: 1,
+      max: 10000,
+    );
+    final writeLimit = _environmentInt(
+      environment,
+      'WAYFARE_RATE_LIMIT_WRITE_PER_WINDOW',
+      fallback: 120,
+      min: 1,
+      max: 10000,
+    );
+    return RateLimiter(
+      enabled: !_environmentFlagDisabled(
+        environment,
+        'WAYFARE_RATE_LIMIT_ENABLED',
+      ),
+      window: Duration(seconds: windowSeconds),
+      trustProxyHeaders: _environmentFlagEnabled(
+        environment,
+        'WAYFARE_TRUST_PROXY',
+      ),
+      rules: [
+        RateLimitRule(
+          id: 'auth',
+          limit: authLimit,
+          matches: (method, path) =>
+              method == 'POST' &&
+              (_matches(path, ['auth', 'login']) ||
+                  _matches(path, ['auth', 'send-code'])),
+        ),
+        RateLimitRule(
+          id: 'search',
+          limit: searchLimit,
+          matches: (method, path) =>
+              method == 'GET' && _matches(path, ['search']),
+        ),
+        RateLimitRule(
+          id: 'write',
+          limit: writeLimit,
+          matches: (method, path) {
+            if (method != 'POST' && method != 'PATCH' && method != 'DELETE') {
+              return false;
+            }
+            return !_matches(path, ['auth', 'login']) &&
+                !_matches(path, ['auth', 'send-code']) &&
+                !_matches(path, ['auth', 'logout']);
+          },
+        ),
+      ],
+    );
+  }
+
+  final bool enabled;
+  final Duration window;
+  final List<RateLimitRule> rules;
+  final bool trustProxyHeaders;
+  final Map<String, _RateLimitWindow> _windows = {};
+
+  RateLimitDecision check(
+    HttpRequest request,
+    String method,
+    List<String> path,
+  ) {
+    final rule = _ruleFor(method, path);
+    final now = DateTime.now().toUtc();
+    if (!enabled || rule == null) {
+      return RateLimitDecision(
+        allowed: true,
+        ruleId: 'none',
+        limit: 0,
+        remaining: 0,
+        resetAt: now,
+      );
+    }
+
+    _prune(now);
+    final key = '${rule.id}:${_clientKey(request)}';
+    final current = _windows[key];
+    final bucket = current == null || !now.isBefore(current.resetAt)
+        ? _RateLimitWindow(count: 0, resetAt: now.add(window))
+        : current;
+    _windows[key] = bucket;
+
+    if (bucket.count >= rule.limit) {
+      return RateLimitDecision(
+        allowed: false,
+        ruleId: rule.id,
+        limit: rule.limit,
+        remaining: 0,
+        resetAt: bucket.resetAt,
+      );
+    }
+
+    bucket.count += 1;
+    return RateLimitDecision(
+      allowed: true,
+      ruleId: rule.id,
+      limit: rule.limit,
+      remaining: math.max(0, rule.limit - bucket.count),
+      resetAt: bucket.resetAt,
+    );
+  }
+
+  RateLimitRule? _ruleFor(String method, List<String> path) {
+    for (final rule in rules) {
+      if (rule.matches(method, path)) {
+        return rule;
+      }
+    }
+    return null;
+  }
+
+  String _clientKey(HttpRequest request) {
+    if (trustProxyHeaders) {
+      final forwardedFor = request.headers.value('x-forwarded-for');
+      final firstForwarded = forwardedFor?.split(',').first.trim();
+      if (firstForwarded != null && firstForwarded.isNotEmpty) {
+        return firstForwarded;
+      }
+    }
+    return request.connectionInfo?.remoteAddress.address ?? 'unknown';
+  }
+
+  void _prune(DateTime now) {
+    _windows.removeWhere((_, bucket) => !now.isBefore(bucket.resetAt));
+  }
+}
+
+class _RateLimitWindow {
+  _RateLimitWindow({
+    required this.count,
+    required this.resetAt,
+  });
+
+  int count;
+  final DateTime resetAt;
 }
 
 class AuthSession {
@@ -2303,6 +2505,27 @@ Future<void> _badRequest(HttpRequest request, String message) {
   return _json(request, {'error': message}, status: HttpStatus.badRequest);
 }
 
+Future<void> _tooManyRequests(
+  HttpRequest request,
+  RateLimitDecision decision,
+) {
+  request.response.headers
+    ..set('Retry-After', decision.retryAfterSeconds.toString())
+    ..set('X-RateLimit-Limit', decision.limit.toString())
+    ..set('X-RateLimit-Remaining', decision.remaining.toString())
+    ..set('X-RateLimit-Reset', decision.resetAt.toIso8601String());
+  return _json(
+    request,
+    {
+      'error': 'Too many requests',
+      'rule': decision.ruleId,
+      'limit': decision.limit,
+      'retryAfterSeconds': decision.retryAfterSeconds,
+    },
+    status: HttpStatus.tooManyRequests,
+  );
+}
+
 void _applyCors(HttpRequest request) {
   final response = request.response;
   final origin = request.headers.value('origin');
@@ -2356,6 +2579,30 @@ String _id(String prefix) {
 
 const _maxBodyBytes = 64 * 1024;
 const _localDevelopmentSecret = 'wayfare-local-development-secret-change-me';
+
+int _environmentInt(
+  Map<String, String> environment,
+  String name, {
+  required int fallback,
+  required int min,
+  required int max,
+}) {
+  final parsed = int.tryParse(environment[name]?.trim() ?? '');
+  if (parsed == null) {
+    return fallback;
+  }
+  return math.min(max, math.max(min, parsed));
+}
+
+bool _environmentFlagEnabled(Map<String, String> environment, String name) {
+  final value = environment[name]?.trim().toLowerCase();
+  return value == '1' || value == 'true' || value == 'yes' || value == 'on';
+}
+
+bool _environmentFlagDisabled(Map<String, String> environment, String name) {
+  final value = environment[name]?.trim().toLowerCase();
+  return value == '0' || value == 'false' || value == 'no' || value == 'off';
+}
 
 String _randomUrlSafe(int byteCount) {
   final bytes = List<int>.generate(

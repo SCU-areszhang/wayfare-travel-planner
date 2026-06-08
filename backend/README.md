@@ -24,6 +24,12 @@ Production-oriented configuration:
 - `WAYFARE_BIND_HOST`: bind address. Default: `127.0.0.1`.
 - `WAYFARE_DB_PATH`: SQLite path. Default: `data/wayfare.sqlite`.
 - `AMAP_WEB_SERVICE_KEY`: optional backend AMap Web Service key for live POI search.
+- `WAYFARE_RATE_LIMIT_ENABLED`: set to `false` only for controlled local debugging. Default: enabled.
+- `WAYFARE_RATE_LIMIT_WINDOW_SECONDS`: fixed-window duration, clamped to 1-3600 seconds. Default: `60`.
+- `WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW`: login/send-code attempts per client window. Default: `12`.
+- `WAYFARE_RATE_LIMIT_SEARCH_PER_WINDOW`: search requests per client window. Default: `120`.
+- `WAYFARE_RATE_LIMIT_WRITE_PER_WINDOW`: itinerary, saved-trip, and feedback writes per client window. Default: `120`.
+- `WAYFARE_TRUST_PROXY`: set to `true` only behind a trusted reverse proxy that overwrites `X-Forwarded-For`.
 
 Before deploying a shared or production backend, run the project-level release
 gate from the repository root:
@@ -35,6 +41,10 @@ dart run tool/release_readiness.dart --mode release
 This check fails when the auth secret is weak, CORS origins are not HTTPS-only,
 the Flutter API base is still local, AMap keys are missing, or Android release
 signing inputs are unavailable.
+
+Rate limiting is in-memory and per backend process. It is suitable for the
+single-node prototype and smoke deployments; clustered production deployments
+should move counters to a shared gateway, Redis, or platform rate limiter.
 
 ## Current Data Boundaries
 

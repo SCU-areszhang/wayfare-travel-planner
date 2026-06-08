@@ -98,6 +98,32 @@ void main() {
     expect(token.length, greaterThanOrEqualTo(32));
   });
 
+  test('auth endpoints return 429 after configured rate limit', () async {
+    await server.close();
+    server = await _ServerHarness.start(environmentOverrides: {
+      'WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW': '2',
+      'WAYFARE_RATE_LIMIT_WINDOW_SECONDS': '60',
+    });
+
+    for (var index = 0; index < 2; index++) {
+      final allowed = await server.post('/auth/send-code', {
+        'identifier': 'demo@wayfare.local',
+      });
+      expect(allowed.statusCode, HttpStatus.ok);
+    }
+
+    final limited = await server.post('/auth/send-code', {
+      'identifier': 'demo@wayfare.local',
+    });
+
+    expect(limited.statusCode, HttpStatus.tooManyRequests);
+    expect(limited.json['error'], 'Too many requests');
+    expect(limited.json['rule'], 'auth');
+    expect(limited.json['limit'], 2);
+    expect(limited.retryAfter, isNotNull);
+    expect(limited.rateLimitRemaining, '0');
+  });
+
   test('feedback requires descriptions and defaults blank category', () async {
     final token = await server.login();
 
@@ -190,7 +216,9 @@ class _ServerHarness {
   final StreamSubscription<String> stdoutSubscription;
   final StreamSubscription<String> stderrSubscription;
 
-  static Future<_ServerHarness> start() async {
+  static Future<_ServerHarness> start({
+    Map<String, String> environmentOverrides = const <String, String>{},
+  }) async {
     final port = await _freePort();
     final tempDir = await Directory.systemTemp.createTemp('wayfare_backend_');
     final process = await Process.start(
@@ -200,6 +228,7 @@ class _ServerHarness {
       environment: {
         'WAYFARE_DB_PATH': '${tempDir.path}/wayfare.sqlite',
         'WAYFARE_AUTH_SECRET': 'test-secret-for-signed-session-tokens',
+        ...environmentOverrides,
       },
     );
 
@@ -319,6 +348,8 @@ class _ServerHarness {
       return _JsonResponse(
         statusCode: response.statusCode,
         json: jsonDecode(text) as Map<String, Object?>,
+        retryAfter: response.headers.value('retry-after'),
+        rateLimitRemaining: response.headers.value('x-ratelimit-remaining'),
       );
     } finally {
       client.close(force: true);
@@ -330,10 +361,14 @@ class _JsonResponse {
   const _JsonResponse({
     required this.statusCode,
     required this.json,
+    required this.retryAfter,
+    required this.rateLimitRemaining,
   });
 
   final int statusCode;
   final Map<String, Object?> json;
+  final String? retryAfter;
+  final String? rateLimitRemaining;
 }
 
 Future<int> _freePort() async {

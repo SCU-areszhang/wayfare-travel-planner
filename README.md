@@ -56,6 +56,8 @@ dart run bin/server.dart
 For any shared or deployed environment, set `WAYFARE_AUTH_SECRET` and a narrow
 `WAYFARE_ALLOWED_ORIGINS` value. Without `WAYFARE_AUTH_SECRET`, the backend uses
 a local development signing secret and reports `auth: development` from `/health`.
+The backend also enables per-client fixed-window rate limiting for auth, search,
+and write routes by default; see `backend/README.md` for environment overrides.
 
 The current seed data includes 4A+ scenic spots and urban-core attractions for first-tier and 2025 new first-tier-or-above cities. Full national 4A+ coverage can be imported by extending `scenic_spots` with an official CSV/source list.
 

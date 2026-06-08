@@ -102,8 +102,12 @@ steps:
   - run: dart run tool/release_readiness.dart --mode local
 ''');
   _write(root, 'android/app/build.gradle', '''
+id "org.jetbrains.kotlin.android"
 def releaseStoreFile = System.getenv("WAYFARE_ANDROID_KEYSTORE")
 def keyPropertiesFile = rootProject.file("key.properties")
+sourceCompatibility JavaVersion.VERSION_17
+targetCompatibility JavaVersion.VERSION_17
+jvmTarget = "17"
 android { signingConfigs { release {} } }
 ''');
   _write(root, 'android/app/build.gradle.kts', '''

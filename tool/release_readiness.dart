@@ -222,6 +222,18 @@ class _ReadinessChecker {
         'Wire release signing without committing keystores or passwords.',
       );
     }
+    final needsKotlinConfig = path.endsWith('build.gradle');
+    if (needsKotlinConfig &&
+        (!content.contains('org.jetbrains.kotlin.android') ||
+            !content.contains('sourceCompatibility JavaVersion.VERSION_17') ||
+            !content.contains('targetCompatibility JavaVersion.VERSION_17') ||
+            !content.contains('jvmTarget = "17"'))) {
+      _addError(
+        'android-jvm-targets-$path',
+        'Android Java and Kotlin JVM targets are not consistently set to 17.',
+        'Apply the Kotlin Android plugin and keep compileOptions/kotlinOptions on JVM 17.',
+      );
+    }
   }
 
   void _expectAndroidSigning(ReadinessSeverity severity) {

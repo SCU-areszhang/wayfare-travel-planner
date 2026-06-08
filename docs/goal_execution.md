@@ -442,10 +442,10 @@ release mode with complete production-like inputs: pass.
 
 ```text
 Android debug build
-flutter build apk --debug --no-pub: blocked by Android SDK state.
-Failure: NDK 28.2.13676358 license not accepted.
-Additional environment gap: sdkmanager is not on PATH, so this shell cannot accept SDK licenses or install cmdline-tools.
-Repository fix completed during this check: duplicate ignored KTS Gradle files were removed so only the Groovy Gradle configuration remains active.
+Initial result: blocked by Android SDK state because cmdline-tools were missing and the NDK 28.2.13676358 license was not accepted.
+Follow-up: installed Android command-line tools, accepted SDK licenses, installed platform-tools, platforms android-36/android-34, build-tools 36/35, NDK 28.2.13676358, and CMake 3.22.1.
+Repository fix: aligned Android Java/Kotlin JVM targets to 17 in the active Groovy Gradle file and extended the release readiness gate to catch regressions.
+Final result: `flutter build apk --debug --no-pub` built `build/app/outputs/flutter-apk/app-debug.apk`.
 ```
 
 ```text
@@ -459,8 +459,7 @@ Backend curl smoke proved login returned a signed token, unauthenticated /me ret
 
 Residual risk:
 
-- Android device builds still need Android SDK cmdline-tools or a working `sdkmanager`, accepted NDK licenses, and appbundle verification on a configured Android workstation.
-- Android release signing is now wired and gated, but a real keystore and production AMap/API/auth values are not present in this repository and must be supplied by CI or a release workstation.
+- Android toolchain is now usable for debug APK builds on this machine, but Android release/appbundle verification still needs real signing credentials and production AMap/API/auth values supplied by CI or a release workstation.
 - iOS/macOS builds still need full Xcode and CocoaPods.
 - Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, monitoring, rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
 - Frontend search concurrency, map point confirmation UX, broader widget/E2E tests, and API parsing strictness remain future commercial hardening work.

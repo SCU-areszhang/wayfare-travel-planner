@@ -22,8 +22,9 @@ This project is a Flutter + Dart implementation of the travel planning app descr
 
 The app starts at a login screen unless a local session exists. Phone/email login calls
 `POST /auth/login`: if the identifier exists, the user is signed in; if not, a small-team user
-record is created in SQLite and the user is signed in. The backend returns a signed Bearer
-session token. User-owned itinerary, saved-trip, and feedback routes require that token.
+record is created in SQLite and the user is signed in. The backend returns an opaque
+Bearer session token backed by a revocable SQLite `sessions` table. User-owned
+itinerary, saved-trip, and feedback routes require that token.
 
 ## Backend Scaffold
 

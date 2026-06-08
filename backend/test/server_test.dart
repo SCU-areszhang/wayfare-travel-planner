@@ -75,6 +75,29 @@ void main() {
     expect(user['identifier'], 'demo@wayfare.local');
   });
 
+  test('logout revokes the bearer token', () async {
+    final token = await server.login();
+
+    final logout = await server.post(
+      '/auth/logout',
+      <String, Object?>{},
+      token: token,
+    );
+    expect(logout.statusCode, HttpStatus.ok);
+    expect(logout.json['revoked'], true);
+
+    final me = await server.get('/me', token: token);
+    expect(me.statusCode, HttpStatus.unauthorized);
+    expect(me.json['error'], 'Bearer token is invalid');
+  });
+
+  test('session tokens are opaque and stored server-side', () async {
+    final token = await server.login();
+
+    expect(token, isNot(contains('.')));
+    expect(token.length, greaterThanOrEqualTo(32));
+  });
+
   test('feedback requires descriptions and defaults blank category', () async {
     final token = await server.login();
 

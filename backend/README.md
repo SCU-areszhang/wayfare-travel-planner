@@ -41,7 +41,8 @@ Production-oriented configuration:
 
 - `GET /health`
 - `POST /auth/send-code`
-- `POST /auth/login` with `identifier`, `phone`, or `email`. Unknown identifiers are automatically registered and signed in. The response includes a signed Bearer `token` and `expiresAt`.
+- `POST /auth/login` with `identifier`, `phone`, or `email`. Unknown identifiers are automatically registered and signed in. The response includes an opaque Bearer `token` and `expiresAt`.
+- `POST /auth/logout`
 - `GET /me`
 - `GET /destinations`
 - `GET /destinations/:id`
@@ -69,11 +70,11 @@ User-specific routes require:
 Authorization: Bearer <token-from-auth-login>
 ```
 
-The server derives the user id from the verified token. Client-provided `userId` values in query strings or JSON bodies are ignored for user-owned resources.
+The server derives the user id from a hashed, server-side session. Client-provided `userId` values in query strings or JSON bodies are ignored for user-owned resources. `POST /auth/logout` revokes the current session token.
 
 ## Next Backend Steps
 
 1. Add full request schema validation for itinerary and saved-trip mutations.
-2. Move session storage to a revocable server-side session table or production identity provider.
+2. Replace the built-in session table with a production identity provider when team or compliance needs require SSO, MFA, or centralized audit.
 3. Split the growing server file into route/store/model modules.
 4. Add a map provider adapter for the final Web AMap integration.

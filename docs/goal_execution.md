@@ -324,6 +324,20 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Allowed lockfiles to be tracked, added line-ending policy, added GitHub Actions CI for format/analyze/test/web build/backend tests, and documented production-oriented environment variables.
 - Acceptance link: Release checks are repeatable outside the local machine.
 
+## Session Hardening Iteration
+
+### A05/A07
+
+- Files: `backend/bin/server.dart`, `backend/test/server_test.dart`, `backend/README.md`
+- Change: Added a server-side `sessions` table, changed login tokens from stateless signed payloads to opaque random tokens stored only as HMAC hashes, added `POST /auth/logout`, revoked expired sessions during validation, and covered logout/session opacity in backend tests.
+- Acceptance link: Sessions are now revocable server-side, which is required for credible production logout and incident response.
+
+### A03/A06
+
+- Files: `lib/main.dart`, `test/widget_test.dart`
+- Change: Added `WayfareBackend.logout()`, made Flutter logout revoke the backend session on a best-effort basis before local cleanup, and updated the fake backend contract used by widget tests.
+- Acceptance link: Frontend session lifecycle matches the backend revocation model.
+
 ## Verification Results
 
 Runnable:
@@ -396,6 +410,11 @@ backend: 6 tests passed.
 ```
 
 ```text
+Session hardening tests
+backend: logout revokes token, opaque session token format covered.
+```
+
+```text
 Browser smoke test
 http://127.0.0.1:8092 loaded build/web.
 Temporary backend on http://127.0.0.1:8080 passed /health.
@@ -408,7 +427,7 @@ Residual risk:
 
 - Android device builds still need Android SDK cmdline-tools. iOS/macOS builds still need full Xcode and CocoaPods.
 - Android release signing and appbundle verification remain incomplete.
-- Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, monitoring, rate limiting, and a revocable session store or identity provider.
+- Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, monitoring, rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
 - Frontend search concurrency, map point confirmation UX, broader widget/E2E tests, and API parsing strictness remain future commercial hardening work.
 - PDF and DOCX layout fidelity could not be visually rendered because Poppler and LibreOffice are missing.
 - The nested repository still has pre-existing unstaged Android/Web/Windows platform changes that were intentionally not touched in this iteration.

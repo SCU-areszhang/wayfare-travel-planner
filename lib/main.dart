@@ -450,6 +450,7 @@ class BackendLoginResult {
 abstract interface class WayfareBackend {
   void setSessionToken(String? token);
   Future<BackendLoginResult> loginOrRegister(String identifier);
+  Future<void> logout();
   Future<TravelDataRepository> loadTravelData(String userId);
   Future<List<TravelSearchResult>> searchPlaces(String query);
   Future<ItineraryDay> addDay(
@@ -533,6 +534,12 @@ class WayfareApiClient implements WayfareBackend {
       sessionToken: sessionToken,
       sessionExpiresAt: sessionExpiresAt,
     );
+  }
+
+  @override
+  Future<void> logout() async {
+    await _post('/auth/logout', <String, Object?>{});
+    setSessionToken(null);
   }
 
   @override
@@ -1016,6 +1023,11 @@ class _WayfareAppState extends State<WayfareApp> {
   }
 
   Future<void> _logout() async {
+    try {
+      await widget.backend.logout();
+    } catch (_) {
+      // Local logout must still work if the backend session is already gone.
+    }
     widget.backend.setSessionToken(null);
     await _authRepository.logout();
     if (!mounted) {

@@ -70,11 +70,17 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       }
       final result = store.loginOrRegister(identifier!);
       final user = result['user'] as Map<String, Object?>;
-      final session = _issueSession(user['id'].toString());
+      final session = _issueSession(store, user['id'].toString());
       return _json(request, {
         ...result,
         ...session,
       });
+    }
+
+    if (method == 'POST' && _matches(path, ['auth', 'logout'])) {
+      final session = _requireSession(request, store);
+      store.revokeSession(session.tokenHash);
+      return _json(request, {'revoked': true});
     }
 
     if (method == 'POST' && _matches(path, ['auth', 'send-code'])) {
@@ -305,10 +311,12 @@ class UnauthorizedException implements Exception {
 
 class AuthSession {
   const AuthSession({
+    required this.tokenHash,
     required this.userId,
     required this.expiresAt,
   });
 
+  final String tokenHash;
   final String userId;
   final DateTime expiresAt;
 }
@@ -325,6 +333,7 @@ class SqliteStore {
     final store = SqliteStore._(path, db);
     store._migrate();
     store._seed();
+    store.pruneExpiredSessions();
     return store;
   }
 
@@ -337,6 +346,16 @@ class SqliteStore {
         display_name TEXT NOT NULL,
         created_at TEXT NOT NULL,
         last_login_at TEXT NOT NULL
+      )
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     ''');
     _db.execute('''
@@ -596,6 +615,57 @@ class SqliteStore {
       ],
     );
     return {'registered': true, 'user': user};
+  }
+
+  Map<String, Object?> createSession({
+    required String userId,
+    required String tokenHash,
+    required DateTime expiresAt,
+  }) {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final expiresAtIso = expiresAt.toUtc().toIso8601String();
+    _db.execute(
+      '''
+      INSERT INTO sessions
+        (token_hash, user_id, created_at, expires_at, revoked_at)
+      VALUES (?, ?, ?, ?, NULL)
+      ''',
+      [tokenHash, userId, now, expiresAtIso],
+    );
+    return {
+      'tokenHash': tokenHash,
+      'userId': userId,
+      'createdAt': now,
+      'expiresAt': expiresAtIso,
+      'revokedAt': null,
+    };
+  }
+
+  Map<String, Object?>? sessionByTokenHash(String tokenHash) => _first(
+        '''
+        SELECT token_hash, user_id, created_at, expires_at, revoked_at
+        FROM sessions
+        WHERE token_hash = ?
+        ''',
+        [tokenHash],
+      );
+
+  void revokeSession(String tokenHash) {
+    _db.execute(
+      '''
+      UPDATE sessions
+      SET revoked_at = ?
+      WHERE token_hash = ? AND revoked_at IS NULL
+      ''',
+      [DateTime.now().toUtc().toIso8601String(), tokenHash],
+    );
+  }
+
+  void pruneExpiredSessions() {
+    _db.execute(
+      'DELETE FROM sessions WHERE expires_at <= ?',
+      [DateTime.now().toUtc().toIso8601String()],
+    );
   }
 
   Map<String, Object?>? userById(String id) => _first(
@@ -2328,14 +2398,16 @@ Duration _sessionDuration() {
   return Duration(days: days);
 }
 
-Map<String, Object?> _issueSession(String userId) {
+Map<String, Object?> _issueSession(SqliteStore store, String userId) {
   final expiresAt = DateTime.now().toUtc().add(_sessionDuration());
-  final payload = _base64Url(utf8.encode(jsonEncode({
-    'sub': userId,
-    'exp': expiresAt.millisecondsSinceEpoch,
-  })));
+  final token = _randomUrlSafe(32);
+  store.createSession(
+    userId: userId,
+    tokenHash: _sessionTokenHash(token),
+    expiresAt: expiresAt,
+  );
   return {
-    'token': '$payload.${_sessionSignature(payload)}',
+    'token': token,
     'expiresAt': expiresAt.toIso8601String(),
   };
 }
@@ -2347,62 +2419,37 @@ AuthSession _requireSession(HttpRequest request, SqliteStore store) {
     throw const UnauthorizedException('Bearer token is required');
   }
   final token = header.substring(tokenPrefix.length).trim();
-  final parts = token.split('.');
-  if (parts.length != 2 || parts.first.isEmpty || parts.last.isEmpty) {
+  if (token.isEmpty) {
     throw const UnauthorizedException('Bearer token is invalid');
   }
-  final expectedSignature = _sessionSignature(parts.first);
-  if (!_constantTimeEquals(parts.last, expectedSignature)) {
+  final tokenHash = _sessionTokenHash(token);
+  final stored = store.sessionByTokenHash(tokenHash);
+  if (stored == null || stored['revoked_at'] != null) {
     throw const UnauthorizedException('Bearer token is invalid');
   }
 
-  final payload = _decodeSessionPayload(parts.first);
-  final userId = payload['sub']?.toString() ?? '';
-  final exp = payload['exp'];
-  if (userId.isEmpty || exp is! int) {
+  final userId = stored['user_id']?.toString() ?? '';
+  final expiresAt = DateTime.tryParse(stored['expires_at']?.toString() ?? '');
+  if (userId.isEmpty || expiresAt == null) {
     throw const UnauthorizedException('Bearer token is invalid');
   }
-  final expiresAt = DateTime.fromMillisecondsSinceEpoch(exp, isUtc: true);
-  if (!DateTime.now().toUtc().isBefore(expiresAt)) {
+  if (!DateTime.now().toUtc().isBefore(expiresAt.toUtc())) {
+    store.revokeSession(tokenHash);
     throw const UnauthorizedException('Bearer token has expired');
   }
   if (store.userById(userId) == null) {
     throw const UnauthorizedException('Bearer token user is invalid');
   }
-  return AuthSession(userId: userId, expiresAt: expiresAt);
+  return AuthSession(
+    tokenHash: tokenHash,
+    userId: userId,
+    expiresAt: expiresAt.toUtc(),
+  );
 }
 
-Map<String, Object?> _decodeSessionPayload(String payload) {
-  try {
-    final normalized = base64Url.normalize(payload);
-    final decoded = jsonDecode(utf8.decode(base64Url.decode(normalized)));
-    if (decoded is Map) {
-      return decoded.map<String, Object?>(
-        (key, value) => MapEntry(key.toString(), value),
-      );
-    }
-  } catch (_) {
-    // Fall through to the uniform invalid-token error below.
-  }
-  throw const UnauthorizedException('Bearer token is invalid');
-}
-
-String _sessionSignature(String payload) {
+String _sessionTokenHash(String token) {
   final hmac = Hmac(sha256, utf8.encode(_authSecret()));
-  return _base64Url(hmac.convert(utf8.encode(payload)).bytes);
-}
-
-bool _constantTimeEquals(String left, String right) {
-  final leftUnits = left.codeUnits;
-  final rightUnits = right.codeUnits;
-  var diff = leftUnits.length ^ rightUnits.length;
-  final length = math.max(leftUnits.length, rightUnits.length);
-  for (var index = 0; index < length; index++) {
-    final leftCode = index < leftUnits.length ? leftUnits[index] : 0;
-    final rightCode = index < rightUnits.length ? rightUnits[index] : 0;
-    diff |= leftCode ^ rightCode;
-  }
-  return diff == 0;
+  return _base64Url(hmac.convert(utf8.encode(token)).bytes);
 }
 
 String? _identifierValidationError(String? identifier) {

@@ -52,6 +52,9 @@ class _FakeBackend implements WayfareBackend {
   }
 
   @override
+  Future<void> logout() async {}
+
+  @override
   Future<TravelDataRepository> loadTravelData(String userId) async {
     return TravelDataRepository(
       activeItineraryId: 'trip-test',

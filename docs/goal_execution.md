@@ -428,6 +428,14 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added regression coverage for `/health` schema version output, unauthorized `/ops/schema` rejection, authorized migration metadata output, and release readiness fixture coverage.
 - Acceptance link: `dart test` proves schema state is tracked and protected by the ops token.
 
+## Basic Local Demo Smoke Iteration
+
+### A00/A01/A06
+
+- Files: `tool/local_smoke.dart`, `test/local_smoke_test.dart`, `README.md`, `AGENTS.md`, `docs/goal_execution.md`
+- Change: Added a lightweight local smoke command for the reduced basic-function handoff scope. The command checks backend health, login, authenticated `/me`, scenic search, and the optional served Flutter Web shell.
+- Acceptance link: A local reviewer can run one command after starting backend/frontend to confirm the core demo path is available.
+
 ## Verification Results
 
 Runnable:
@@ -481,7 +489,7 @@ No issues found.
 
 ```text
 flutter test
-4 tests passed.
+5 tests passed.
 ```
 
 ```text
@@ -497,6 +505,12 @@ backend: No issues found.
 ```text
 dart test
 backend: 14 tests passed.
+```
+
+```text
+Local demo smoke
+dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092
+Result: backend health, login, authenticated /me, search, and served Web shell passed.
 ```
 
 ```text

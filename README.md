@@ -106,6 +106,15 @@ flutter build web --release --pwa-strategy=none
 python -m http.server 8092 --bind 127.0.0.1 --directory build/web
 ```
 
+Then verify the basic local demo path:
+
+```powershell
+dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092
+```
+
+The smoke check covers backend health, login, authenticated `/me`, scenic search,
+and the served Flutter Web shell.
+
 To point the web build at another backend:
 
 ```powershell

@@ -1,0 +1,7 @@
+analyzer:
+  exclude:
+    - .dart_tool/**
+
+linter:
+  rules:
+    avoid_print: false

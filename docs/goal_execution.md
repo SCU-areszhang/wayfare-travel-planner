@@ -1,0 +1,384 @@
+# Goal Execution Notes
+
+Date: 2026-06-08
+
+## Control
+
+- Goal document read first: root `goal.md`.
+- Project root confirmed: `IDM/`.
+- Required role model: exactly 8 logical subagents, A00 through A07.
+- Business-code optimization starts only after `IDM/AGENTS.md` exists.
+
+## Document Read Notes
+
+PDF UI document:
+
+- Product is a one-stop travel planning tool, not a booking or payment platform.
+- Primary tabs are Home, Explore, Itinerary, Saved, and Profile.
+- Core flows are login, search, recommendation, map marker details, itinerary editing, saved trips, support, and feedback.
+- Itinerary is the core working screen and must support create, edit, delete, reorder, save, and clear validation feedback.
+- Map is for spatial planning context, marker details, route context, and add-to-itinerary actions.
+- Empty, loading, network, map failure, validation, saved, and error states should be explicit and recoverable.
+- Material 3 components, dynamic color, accessible contrast, scalable text, and 44x44 touch targets are expected.
+- Evaluation tasks T1 through T6 cover login, destination search, itinerary creation, map add, item edit/reorder/delete, saved trips, and support.
+
+DOCX requirements file:
+
+- Scope is destination discovery, personalized recommendation, itinerary planning, interactive map viewing, saved trip management, and in-trip adjustment.
+- Non-goals include payment, hotel or flight transactions, deep merchant integration, large social/community features, and advanced recommendation infrastructure.
+- Inputs require validation for login identifiers, search queries, dates, itinerary entries, and map selections.
+- Outputs must reflect current data accurately and show clear error/status prompts.
+- Fault handling must cover invalid input, network timeout, login failure, destination query failure, map unavailability, and itinerary save/update failure.
+- Basic confidentiality is required for user identifiers, login status, and saved trip information.
+
+History notes from `Codex` chat export:
+
+- The project evolved from an Android prototype to the current Flutter implementation.
+- Recent work added AMap Web/native setup, SQLite backend, CityWalk templates, revised Home/Profile layout, and updated widget tests.
+- Prior Windows run reported Web build and `flutter test` passed, while browser screenshot verification was blocked.
+- Current macOS workspace must be reverified independently.
+
+## Repository Map
+
+- `lib/main.dart`: main Flutter app, models, API client, screens, widgets, state.
+- `lib/amap_canvas_web.dart`: Web AMap JS bridge.
+- `lib/amap_canvas_stub.dart`: non-Web AMap bridge stub.
+- `lib/login_identifier_field_*`: Web and non-Web login input field implementations.
+- `lib/search_query_field_*`: Web and non-Web search input field implementations.
+- `backend/bin/server.dart`: Dart HTTP server, routes, SQLite store, seed data.
+- `backend/data/wayfare.sqlite`: local SQLite prototype data.
+- `test/widget_test.dart`: login and Home render widget test with fake backend.
+- `third_party/`: local AMap Flutter dependencies, vendor area.
+- `web/`: Flutter Web shell and PWA metadata.
+- `docs/`: UI and requirements source documents.
+
+## Baseline Evidence
+
+```text
+pwd
+/Users/ares/Documents/UI design for IDM
+```
+
+```text
+git status --short --branch
+## No commits yet on main
+?? .DS_Store
+?? Codex chat export
+?? IDM/
+?? goal.md
+?? local AMap key text file
+```
+
+SQLite evidence:
+
+```text
+sqlite3 IDM/backend/data/wayfare.sqlite ".tables"
+destinations feedback itineraries map_places saved_trips scenic_spots users
+```
+
+```text
+users: 3
+itineraries: 3
+scenic_spots: 63
+saved_trips: 0
+search orange-isle equivalent: 2 matching scenic spot records
+```
+
+## Failure Records
+
+### Missing Flutter
+
+- Step: Environment check.
+- Time: 2026-06-08 local.
+- Environment: macOS shell in repository root.
+- Command: `command -v flutter`
+- Expected: Flutter executable path.
+- Actual: not found.
+- Error output: empty command output with non-zero exit.
+- Screenshot: none.
+- Suspected cause: Flutter is not installed or not on PATH in this environment.
+- Next suggested action: Install Flutter or add it to PATH, then run `flutter doctor -v`.
+- Blocking level: high for frontend analyze, test, run, and build.
+
+### Missing Dart
+
+- Step: Environment check.
+- Time: 2026-06-08 local.
+- Environment: macOS shell in repository root.
+- Command: `command -v dart`
+- Expected: Dart executable path.
+- Actual: not found.
+- Error output: empty command output with non-zero exit.
+- Screenshot: none.
+- Suspected cause: Dart SDK is not installed or not on PATH in this environment.
+- Next suggested action: Install Dart or use the Dart bundled with Flutter.
+- Blocking level: high for backend startup, backend dependency resolution, and Dart formatting.
+
+### Missing adb
+
+- Step: Environment check.
+- Time: 2026-06-08 local.
+- Environment: macOS shell in repository root.
+- Command: `command -v adb`
+- Expected: Android Debug Bridge executable path.
+- Actual: not found.
+- Error output: empty command output with non-zero exit.
+- Screenshot: none.
+- Suspected cause: Android platform tools are not installed or not on PATH.
+- Next suggested action: Install Android SDK platform tools if Android device testing is required.
+- Blocking level: medium for Android device testing.
+
+### PDF/DOCX Visual Review Blocked
+
+- Step: Document visual rendering check.
+- Time: 2026-06-08 local.
+- Environment: macOS shell in repository root.
+- Command: `which pdftoppm` and `which soffice`
+- Expected: Poppler and LibreOffice commands available for visual rendering.
+- Actual: both not found.
+- Error output: command-specific not found output.
+- Screenshot: none.
+- Suspected cause: rendering dependencies are not installed in this environment.
+- Next suggested action: Install Poppler and LibreOffice for page-level layout review.
+- Blocking level: low for text-based requirements extraction, medium for layout-fidelity review.
+
+## Agent Specs
+
+### A00
+
+- Role: Orchestrator and Delivery Lead.
+- Objective: Preserve stage gates, order work, and summarize delivery.
+- Inputs: `goal.md`, repo map, verification output.
+- Read scope: entire repository except generated/vendor details as needed.
+- Write scope: execution notes and final integration only.
+- Proposed changes: maintain this execution log and final traceability.
+- Acceptance criteria: final answer lists files changed, phases, tests, blockers, risks.
+- Tests: verify command outputs and changed file list.
+- Risks: toolchain blockers prevent full runtime verification.
+- Handoff dependencies: all roles report through A00.
+
+### A01
+
+- Role: Product Spec and AGENTS Owner.
+- Objective: Convert goal and docs into project-specific operating rules.
+- Inputs: goal, PDF UI document, DOCX requirements.
+- Read scope: docs and root control files.
+- Write scope: `AGENTS.md`, product/spec notes.
+- Proposed changes: create `AGENTS.md` and this execution note.
+- Acceptance criteria: 8 roles, workflow, file ownership, commands, testing, security, and failure format exist.
+- Tests: inspect docs for required headings and absence of secrets.
+- Risks: visual layout of source docs could not be rendered locally.
+- Handoff dependencies: A01 to A06 for acceptance and test matrix.
+
+### A02
+
+- Role: Reproduction and Environment Agent.
+- Objective: Verify local tools and data without modifying app code.
+- Inputs: shell, git, SQLite, package files.
+- Read scope: repository and environment.
+- Write scope: none except evidence notes.
+- Proposed changes: none.
+- Acceptance criteria: runnable and blocked checks are clearly separated.
+- Tests: command checks for Flutter, Dart, sqlite3, adb, and SQLite counts.
+- Risks: missing Flutter/Dart prevents code-level verification.
+- Handoff dependencies: A02 to A00 for blockers.
+
+### A03
+
+- Role: Flutter Architecture Agent.
+- Objective: Keep state mutations and API-client behavior defensible.
+- Inputs: `lib/main.dart`, widget test, backend contract.
+- Read scope: `lib/`, `test/`.
+- Write scope: Flutter state, models, API client, navigation boundaries.
+- Proposed changes: add small defensive guards around day/item creation and target-day selection.
+- Acceptance criteria: no user-visible crash when days are empty or a target day changes while a sheet is open.
+- Tests: Flutter analyze/test when toolchain exists.
+- Risks: unable to run Flutter checks in current PATH.
+- Handoff dependencies: A03 to A05 for API contract assumptions.
+
+### A04
+
+- Role: UI/UX, Material 3 and Map Experience Agent.
+- Objective: Improve explicit states and form validation in user-facing flows.
+- Inputs: UI document, `lib/main.dart`.
+- Read scope: screens, widgets, map UI, feedback UI.
+- Write scope: `lib/main.dart`, Web/stub UI support if needed.
+- Proposed changes: add Saved empty states and feedback description validation.
+- Acceptance criteria: Saved page does not render empty sections silently, feedback cannot submit an empty description.
+- Tests: widget test/manual smoke when Flutter exists.
+- Risks: visual screenshot verification unavailable without Flutter/browser run.
+- Handoff dependencies: A04 to A03 and A05 for state/API changes.
+
+### A05
+
+- Role: Backend, SQLite and API Agent.
+- Objective: Tighten API input validation and client-error handling.
+- Inputs: DOCX fault handling requirements, backend README, `backend/bin/server.dart`.
+- Read scope: `backend/`, API client call sites.
+- Write scope: backend routes, validation helpers, SQLite store boundaries.
+- Proposed changes: return 400 for malformed JSON/validation failures, validate login and feedback, clamp search limit.
+- Acceptance criteria: bad request shapes do not fall through as generic 500 errors.
+- Tests: `dart test` and curl smoke when Dart exists.
+- Risks: Dart unavailable in current environment.
+- Handoff dependencies: A05 to A03 for frontend error expectations.
+
+### A06
+
+- Role: QA and Test Agent.
+- Objective: Keep verification explicit and trace skipped checks.
+- Inputs: existing widget test, commands, blockers.
+- Read scope: app, backend, tests.
+- Write scope: tests and verification notes.
+- Proposed changes: no broad test expansion until Flutter/Dart tools exist.
+- Acceptance criteria: final summary states passed, blocked, and skipped checks.
+- Tests: SQLite checks now; Flutter/Dart checks later.
+- Risks: syntax errors could remain undetected without Dart/Flutter.
+- Handoff dependencies: A06 to owning agent for any failing check.
+
+### A07
+
+- Role: Security, GitHub and Release Agent.
+- Objective: Prevent local secrets and generated files from entering git.
+- Inputs: git status, root files, secret scan.
+- Read scope: git state and security-sensitive paths.
+- Write scope: root ignore rules and security notes.
+- Proposed changes: add a root `.gitignore` for local AMap key text, `.DS_Store`, logs, build, and tool caches.
+- Acceptance criteria: local key file is ignored by git without deleting user data.
+- Tests: `git status --short --ignored` review.
+- Risks: repository has no commits and many pre-existing untracked files.
+- Handoff dependencies: A07 to A00 for final release risk.
+
+## Implementation Trace
+
+### A01
+
+- File: `AGENTS.md`
+- Change: Added project-specific workflow, the required 8 logical roles, ownership boundaries, commands, testing expectations, security rules, and failure-record format.
+- Acceptance link: Goal Phase 2.
+
+### A00
+
+- File: `docs/goal_execution.md`
+- Change: Added document read notes, repository map, baseline evidence, agent specs, implementation trace, and verification results.
+- Acceptance link: Goal Phases 0, 1, 3, 5, and 6.
+
+### A07
+
+- File: root `.gitignore`
+- Change: Added root ignore rules for local key text files, environment files, `.DS_Store`, Flutter/Dart build outputs, backend runtime data, logs, and IDE metadata.
+- Acceptance link: No local AMap keys or generated files should be staged accidentally.
+
+### A03
+
+- File: `lib/main.dart`
+- Change: Added target-day index validation before item creation and edit save, and removed an unawaited default-day call from quick-add flow.
+- Acceptance link: Add-to-itinerary actions should not crash if a target day changes while a sheet is open.
+
+### A04
+
+- File: `lib/main.dart`
+- Change: Feedback now requires a non-empty description and shows an in-sheet submitting state. Saved page search and folder chips now filter trips and show explicit empty states for no results, upcoming trips, and past trips.
+- Acceptance link: Fault handling and empty states are visible and recoverable.
+
+### A05
+
+- File: `backend/bin/server.dart`
+- Change: Added 400 responses for malformed JSON and validation errors, login/send-code identifier validation, feedback description validation, search limit clamping, safer JSON object coercion, 404s for missing itinerary day/item IDs, configurable `WAYFARE_DB_PATH`, and less-detailed 500 responses.
+- Acceptance link: API validation and fault handling match the requirements baseline.
+
+### A06
+
+- Files: `backend/pubspec.yaml`, `backend/analysis_options.yaml`, `backend/test/server_test.dart`
+- Change: Added backend HTTP integration tests that run against a temporary SQLite database.
+- Acceptance link: Backend validation and 404 behavior are covered by `dart test`.
+
+### A03/A04
+
+- Files: `analysis_options.yaml`, `pubspec.yaml`, `lib/main.dart`
+- Change: Scoped Flutter analysis away from backend/vendor packages, added `cupertino_icons`, migrated itinerary reordering to `onReorderItem`, and pinned touch feedback to `InkRipple` to avoid Flutter 3.44 test shader incompatibility.
+- Acceptance link: `flutter analyze`, `flutter test`, and web release build all pass on the installed toolchain.
+
+## Verification Results
+
+Runnable:
+
+```text
+git status --short --branch --ignored
+branch: codex/goal-implementation
+local AMap key text file: ignored
+```
+
+```text
+sqlite3 backend/data/wayfare.sqlite ".tables"
+destinations feedback itineraries map_places saved_trips scenic_spots users
+```
+
+```text
+SQLite counts
+users: 3
+itineraries: 3
+scenic_spots: 63
+saved_trips: 0
+```
+
+```text
+SQLite search evidence
+orange-isle equivalent query returned 2 Changsha 5A records
+```
+
+Toolchain installed:
+
+```text
+Flutter 3.44.1
+Dart 3.12.1
+adb 37.0.0-14910828
+```
+
+```text
+flutter doctor -v
+Flutter: ok
+Chrome/web: ok
+Connected devices: macOS and Chrome
+Network resources: ok
+Android toolchain: cmdline-tools missing
+Xcode: full Xcode and CocoaPods missing
+```
+
+```text
+flutter analyze
+No issues found.
+```
+
+```text
+flutter test
+All tests passed.
+```
+
+```text
+flutter build web --release --pwa-strategy=none
+Built build/web.
+```
+
+```text
+dart analyze
+backend: No issues found.
+```
+
+```text
+dart test
+backend: 4 tests passed.
+```
+
+```text
+Browser smoke test
+http://127.0.0.1:8092 loaded build/web.
+Temporary backend on http://127.0.0.1:8080 passed /health.
+Login with demo@wayfare.local reached Home with Find Places and System CityWalks visible.
+Browser error/warning logs: none.
+```
+
+Residual risk:
+
+- Android device builds still need Android SDK cmdline-tools. iOS/macOS builds still need full Xcode and CocoaPods.
+- PDF and DOCX layout fidelity could not be visually rendered because Poppler and LibreOffice are missing.
+- The repository has no commits yet and many pre-existing untracked project files, so staging must remain file-explicit.

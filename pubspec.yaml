@@ -17,6 +17,7 @@ dependencies:
   amap_flutter_base:
     path: third_party/amap_flutter_base
   shared_preferences: ^2.5.5
+  cupertino_icons: ^1.0.9
 
 dev_dependencies:
   flutter_test:

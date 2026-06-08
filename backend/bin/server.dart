@@ -8,7 +8,9 @@ void main(List<String> args) async {
         Platform.environment['PORT'] ?? (args.isEmpty ? '' : args.first),
       ) ??
       8080;
-  final store = SqliteStore.open('data/wayfare.sqlite');
+  final databasePath =
+      Platform.environment['WAYFARE_DB_PATH'] ?? 'data/wayfare.sqlite';
+  final store = SqliteStore.open(databasePath);
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
   stdout.writeln('Wayfare SQLite backend listening on http://localhost:$port');
 
@@ -52,22 +54,27 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
           ?.toString()
           .trim()
           .toLowerCase();
-      if (identifier == null || identifier.isEmpty) {
-        return _json(
-          request,
-          {'error': 'identifier, phone, or email is required'},
-          status: HttpStatus.badRequest,
-        );
+      final identifierError = _identifierValidationError(identifier);
+      if (identifierError != null) {
+        return _badRequest(request, identifierError);
       }
-      final result = store.loginOrRegister(identifier);
+      final result = store.loginOrRegister(identifier!);
       return _json(request, result);
     }
 
     if (method == 'POST' && _matches(path, ['auth', 'send-code'])) {
       final body = await _body(request);
+      final identifier = (body['identifier'] ?? body['phone'] ?? body['email'])
+          ?.toString()
+          .trim()
+          .toLowerCase();
+      final identifierError = _identifierValidationError(identifier);
+      if (identifierError != null) {
+        return _badRequest(request, identifierError);
+      }
       return _json(request, {
         'requestId': _id('code'),
-        'identifier': body['identifier'] ?? body['phone'] ?? body['email'],
+        'identifier': identifier,
         'message': 'SMS/email code is mocked for the course prototype.',
       });
     }
@@ -102,8 +109,7 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
 
     if (method == 'GET' && _matches(path, ['search'])) {
       final query = request.uri.queryParameters['q'] ?? '';
-      final limit =
-          int.tryParse(request.uri.queryParameters['limit'] ?? '') ?? 20;
+      final limit = _queryLimit(request.uri.queryParameters['limit']);
       return _json(request, {'items': await store.search(query, limit: limit)});
     }
 
@@ -126,7 +132,7 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     }
 
     if (path.length >= 2 && path.first == 'itineraries') {
-      return _handleItinerary(request, path, store);
+      return await _handleItinerary(request, path, store);
     }
 
     if (method == 'GET' && _matches(path, ['saved'])) {
@@ -153,6 +159,14 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
 
     if (method == 'POST' && _matches(path, ['feedback'])) {
       final body = await _body(request);
+      final description = body['description']?.toString().trim() ?? '';
+      if (description.isEmpty) {
+        return _badRequest(request, 'description is required');
+      }
+      final category = body['category']?.toString().trim();
+      body['description'] = description;
+      body['category'] =
+          category == null || category.isEmpty ? 'general' : category;
       return _json(
         request,
         {'item': store.createFeedback(body)},
@@ -161,12 +175,18 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     }
 
     return _notFound(request, 'Route not found');
+  } on NotFoundException catch (error) {
+    return _notFound(request, error.message);
+  } on FormatException catch (error) {
+    return _badRequest(request, error.message);
+  } on ArgumentError catch (error) {
+    return _badRequest(request, error.message);
   } catch (error, stackTrace) {
     stderr.writeln(error);
     stderr.writeln(stackTrace);
     return _json(
       request,
-      {'error': 'Internal server error', 'detail': error.toString()},
+      {'error': 'Internal server error'},
       status: HttpStatus.internalServerError,
     );
   }
@@ -239,6 +259,12 @@ Future<void> _handleItinerary(
   }
 
   return _notFound(request, 'Itinerary route not found');
+}
+
+class NotFoundException implements Exception {
+  const NotFoundException(this.message);
+
+  final String message;
 }
 
 class SqliteStore {
@@ -752,7 +778,7 @@ class SqliteStore {
               if (city.isNotEmpty) city,
               if (district.isNotEmpty) district,
               if (address.isNotEmpty) address,
-            ].join(' 路 '),
+            ].join(' | '),
             'city': city,
             'level': 'AMap',
             'intro': _shortIntro(type.isEmpty ? address : type),
@@ -889,7 +915,7 @@ class SqliteStore {
       throw StateError('Itinerary not found');
     }
     final days = _days(trip);
-    final day = days.firstWhere((entry) => entry['id'] == dayId);
+    final day = _dayById(days, dayId);
     final items = _items(day);
     final item = {
       'id': _id('item'),
@@ -922,14 +948,14 @@ class SqliteStore {
       throw StateError('Itinerary not found');
     }
     final days = _days(trip);
-    final day = days.firstWhere((entry) => entry['id'] == dayId);
+    final day = _dayById(days, dayId);
     final items = _items(day);
-    final item = items.firstWhere((entry) => entry['id'] == itemId);
+    final item = _itemById(items, itemId);
     item.addAll(body);
     final targetDayId = body['targetDayId']?.toString();
     if (targetDayId != null && targetDayId.isNotEmpty && targetDayId != dayId) {
       items.removeWhere((entry) => entry['id'] == itemId);
-      final targetDay = days.firstWhere((entry) => entry['id'] == targetDayId);
+      final targetDay = _dayById(days, targetDayId);
       final targetItems = _items(targetDay);
       item['order'] = targetItems.length;
       targetItems.add(item);
@@ -963,7 +989,7 @@ class SqliteStore {
       throw const FormatException('itemIds is required.');
     }
     final days = _days(trip);
-    final day = days.firstWhere((entry) => entry['id'] == dayId);
+    final day = _dayById(days, dayId);
     final items = _items(day);
     final byId = {for (final item in items) item['id'].toString(): item};
     final reordered = <Map<String, Object?>>[];
@@ -994,8 +1020,10 @@ class SqliteStore {
       throw StateError('Itinerary not found');
     }
     final days = _days(trip);
-    final day = days.firstWhere((entry) => entry['id'] == dayId);
-    final items = _items(day)..removeWhere((entry) => entry['id'] == itemId);
+    final day = _dayById(days, dayId);
+    final items = _items(day);
+    _itemById(items, itemId);
+    items.removeWhere((entry) => entry['id'] == itemId);
     day['items'] = items;
     trip['days'] = days;
     trip['updatedAt'] = DateTime.now().toIso8601String();
@@ -2030,6 +2058,30 @@ class SqliteStore {
       _db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
     }
   }
+
+  Map<String, Object?> _dayById(
+    List<Map<String, Object?>> days,
+    String dayId,
+  ) {
+    for (final day in days) {
+      if (day['id'] == dayId) {
+        return day;
+      }
+    }
+    throw const NotFoundException('Itinerary day not found');
+  }
+
+  Map<String, Object?> _itemById(
+    List<Map<String, Object?>> items,
+    String itemId,
+  ) {
+    for (final item in items) {
+      if (item['id'] == itemId) {
+        return item;
+      }
+    }
+    throw const NotFoundException('Itinerary item not found');
+  }
 }
 
 String _shortIntro(String value) {
@@ -2091,8 +2143,10 @@ Future<Map<String, Object?>> _body(HttpRequest request) async {
     return {};
   }
   final decoded = jsonDecode(raw);
-  if (decoded is Map<String, Object?>) {
-    return decoded;
+  if (decoded is Map) {
+    return decoded.map<String, Object?>(
+      (key, value) => MapEntry(key.toString(), value),
+    );
   }
   throw const FormatException('JSON request body must be an object.');
 }
@@ -2110,6 +2164,10 @@ Future<void> _json(
 
 Future<void> _notFound(HttpRequest request, String message) {
   return _json(request, {'error': message}, status: HttpStatus.notFound);
+}
+
+Future<void> _badRequest(HttpRequest request, String message) {
+  return _json(request, {'error': message}, status: HttpStatus.badRequest);
 }
 
 void _applyCors(HttpResponse response) {
@@ -2134,6 +2192,36 @@ bool _matches(List<String> path, List<String> target) {
 
 String _id(String prefix) {
   return '$prefix-${DateTime.now().microsecondsSinceEpoch}';
+}
+
+String? _identifierValidationError(String? identifier) {
+  final value = identifier?.trim() ?? '';
+  if (value.isEmpty) {
+    return 'identifier, phone, or email is required';
+  }
+  if (value.contains('@')) {
+    final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    return emailPattern.hasMatch(value) ? null : 'email format is invalid';
+  }
+  final phonePattern = RegExp(r'^\+?[0-9][0-9 -]{5,20}$');
+  return phonePattern.hasMatch(value) ? null : 'phone format is invalid';
+}
+
+int _queryLimit(String? raw) {
+  if (raw == null || raw.isEmpty) {
+    return 20;
+  }
+  final parsed = int.tryParse(raw);
+  if (parsed == null) {
+    throw const FormatException('limit must be an integer');
+  }
+  if (parsed < 1) {
+    return 1;
+  }
+  if (parsed > 50) {
+    return 50;
+  }
+  return parsed;
 }
 
 String _displayName(String identifier) {

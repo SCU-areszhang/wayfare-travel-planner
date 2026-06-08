@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:amap_flutter_base/amap_flutter_base.dart' as amap_base;
 import 'package:amap_flutter_map/amap_flutter_map.dart' as amap_map;
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -997,6 +998,7 @@ class _WayfareAppState extends State<WayfareApp> {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
+      splashFactory: InkRipple.splashFactory,
       visualDensity: VisualDensity.standard,
       scaffoldBackgroundColor: colorScheme.surface,
       pageTransitionsTheme: const PageTransitionsTheme(
@@ -1702,7 +1704,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     required String note,
     LatLng? point,
   }) {
-    _ensureDefaultDay();
+    if (_repository.itineraryDays.isEmpty) {
+      _toast('Create a day before adding itinerary items.');
+      return;
+    }
     var selectedDayIndex = 0;
     var selectedTime = _parseTimeOfDay(null);
 
@@ -1725,6 +1730,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                   Text(place, style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
+                    key: ValueKey(
+                      'quick-add-day-$selectedDayIndex-${_repository.itineraryDays.length}',
+                    ),
                     initialValue: selectedDayIndex,
                     decoration: const InputDecoration(labelText: 'Target day'),
                     items: [
@@ -1735,24 +1743,29 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                             '${_repository.itineraryDays[i].title} | ${_repository.itineraryDays[i].date}',
                           ),
                         ),
-                      DropdownMenuItem<int>(
-                        value: _repository.itineraryDays.length,
-                        child: const Text('Add new day...'),
-                      ),
                     ],
-                    onChanged: (value) async {
+                    onChanged: (value) {
                       if (value != null) {
-                        if (value == _repository.itineraryDays.length) {
-                          final index =
-                              await _pickAndAddDayFromDropdown(context);
-                          if (index != null && context.mounted) {
-                            setSheetState(() => selectedDayIndex = index);
-                          }
-                        } else {
-                          setSheetState(() => selectedDayIndex = value);
-                        }
+                        setSheetState(() => selectedDayIndex = value);
                       }
                     },
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _syncing
+                          ? null
+                          : () async {
+                              final index =
+                                  await _pickAndAddDayFromDropdown(context);
+                              if (index != null && context.mounted) {
+                                setSheetState(() => selectedDayIndex = index);
+                              }
+                            },
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      label: const Text('Add new day'),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   _TimePickerField(
@@ -1919,9 +1932,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     }
     final before = List<ItineraryItem>.from(day.items);
     setState(() {
-      if (oldIndex < newIndex) {
-        newIndex -= 1;
-      }
       final item = day.items.removeAt(oldIndex);
       day.items.insert(newIndex, item);
     });
@@ -2190,6 +2200,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<int>(
+                      key: ValueKey(
+                        'map-point-day-$selectedDayIndex-${_repository.itineraryDays.length}',
+                      ),
                       initialValue: selectedDayIndex,
                       decoration:
                           const InputDecoration(labelText: 'Target day'),
@@ -2203,24 +2216,29 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                               '${_repository.itineraryDays[i].title} | ${_repository.itineraryDays[i].date}',
                             ),
                           ),
-                        DropdownMenuItem<int>(
-                          value: _repository.itineraryDays.length,
-                          child: const Text('Add new day...'),
-                        ),
                       ],
-                      onChanged: (value) async {
+                      onChanged: (value) {
                         if (value != null) {
-                          if (value == _repository.itineraryDays.length) {
-                            final index =
-                                await _pickAndAddDayFromDropdown(context);
-                            if (index != null && context.mounted) {
-                              setSheetState(() => selectedDayIndex = index);
-                            }
-                          } else {
-                            setSheetState(() => selectedDayIndex = value);
-                          }
+                          setSheetState(() => selectedDayIndex = value);
                         }
                       },
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _syncing
+                            ? null
+                            : () async {
+                                final index =
+                                    await _pickAndAddDayFromDropdown(context);
+                                if (index != null && context.mounted) {
+                                  setSheetState(() => selectedDayIndex = index);
+                                }
+                              },
+                        icon: const Icon(Icons.calendar_month_outlined),
+                        label: const Text('Add new day'),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -2330,6 +2348,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<int>(
+                      key: ValueKey(
+                        'edit-item-day-$selectedDayIndex-${days.length}',
+                      ),
                       initialValue: selectedDayIndex,
                       decoration: const InputDecoration(
                         labelText: 'Target day',
@@ -2341,24 +2362,29 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                             value: i,
                             child: Text('${days[i].title} | ${days[i].date}'),
                           ),
-                        DropdownMenuItem<int>(
-                          value: days.length,
-                          child: const Text('Add new day...'),
-                        ),
                       ],
-                      onChanged: (value) async {
+                      onChanged: (value) {
                         if (value != null) {
-                          if (value == _repository.itineraryDays.length) {
-                            final index =
-                                await _pickAndAddDayFromDropdown(context);
-                            if (index != null && context.mounted) {
-                              setSheetState(() => selectedDayIndex = index);
-                            }
-                          } else {
-                            setSheetState(() => selectedDayIndex = value);
-                          }
+                          setSheetState(() => selectedDayIndex = value);
                         }
                       },
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _syncing
+                            ? null
+                            : () async {
+                                final index =
+                                    await _pickAndAddDayFromDropdown(context);
+                                if (index != null && context.mounted) {
+                                  setSheetState(() => selectedDayIndex = index);
+                                }
+                              },
+                        icon: const Icon(Icons.calendar_month_outlined),
+                        label: const Text('Add new day'),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     _TimePickerField(
@@ -2408,7 +2434,13 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                                     'Create or load a backend itinerary first.');
                                 return;
                               }
-                              final targetDay = days[selectedDayIndex];
+                              final resolvedDayIndex =
+                                  _resolveDayIndex(selectedDayIndex);
+                              if (resolvedDayIndex == null) {
+                                return;
+                              }
+                              final targetDay =
+                                  _repository.itineraryDays[resolvedDayIndex];
                               ItineraryDay? oldDay;
                               if (!isNew) {
                                 for (final day in _repository.itineraryDays) {
@@ -2450,10 +2482,19 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                                     point: resolvedPoint,
                                   ),
                                 );
-                                if (saved != null && mounted) {
+                                final sourceDay = oldDay;
+                                final savedItem = saved;
+                                if (savedItem != null && mounted) {
                                   setState(() {
-                                    oldDay!.items.remove(item);
-                                    targetDay.items.add(saved!);
+                                    final oldIndex =
+                                        sourceDay.items.indexOf(item);
+                                    if (sourceDay.id == targetDay.id &&
+                                        oldIndex >= 0) {
+                                      sourceDay.items[oldIndex] = savedItem;
+                                    } else {
+                                      sourceDay.items.remove(item);
+                                      targetDay.items.add(savedItem);
+                                    }
                                   });
                                 }
                               }
@@ -2488,7 +2529,11 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       _toast('Create or load a backend itinerary first.');
       return null;
     }
-    final targetDay = _repository.itineraryDays[selectedDayIndex];
+    final resolvedDayIndex = _resolveDayIndex(selectedDayIndex);
+    if (resolvedDayIndex == null) {
+      return null;
+    }
+    final targetDay = _repository.itineraryDays[resolvedDayIndex];
     final item = await _runBackendMutation(
       () => widget.backend.addItem(
         itineraryId,
@@ -2504,6 +2549,19 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       setState(() => targetDay.items.add(item));
     }
     return item;
+  }
+
+  int? _resolveDayIndex(int selectedDayIndex) {
+    if (_repository.itineraryDays.isEmpty) {
+      _toast('Create a day before adding itinerary items.');
+      return null;
+    }
+    if (selectedDayIndex < 0 ||
+        selectedDayIndex >= _repository.itineraryDays.length) {
+      _toast('Selected day is no longer available. Choose a day again.');
+      return null;
+    }
+    return selectedDayIndex;
   }
 
   Future<void> _saveActivePlan() async {
@@ -2692,61 +2750,87 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   void _showFeedbackSheet() {
     final category = TextEditingController();
     final description = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    var submitting = false;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
-        return _SheetPadding(
-          bottomInset: MediaQuery.viewInsetsOf(context).bottom,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Contact / Feedback',
-                  style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 16),
-              TextField(
-                controller: category,
-                decoration: const InputDecoration(
-                  labelText: 'Issue category',
-                  filled: true,
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return _SheetPadding(
+              bottomInset: MediaQuery.viewInsetsOf(context).bottom,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Contact / Feedback',
+                        style: Theme.of(context).textTheme.headlineSmall),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: category,
+                      enabled: !submitting,
+                      decoration: const InputDecoration(
+                        labelText: 'Issue category',
+                        filled: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: description,
+                      enabled: !submitting,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                        helperText:
+                            'Describe what happened and what you expected.',
+                        filled: true,
+                      ),
+                      validator: _required,
+                      maxLines: 3,
+                    ),
+                    if (submitting) ...[
+                      const SizedBox(height: 12),
+                      const LinearProgressIndicator(),
+                    ],
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: submitting
+                          ? null
+                          : () async {
+                              if (!formKey.currentState!.validate()) {
+                                return;
+                              }
+                              setSheetState(() => submitting = true);
+                              final ok = await _runBackendCommand(
+                                () => widget.backend.submitFeedback(
+                                  userId: widget.user.id,
+                                  category: category.text.trim().isEmpty
+                                      ? 'general'
+                                      : category.text.trim(),
+                                  description: description.text.trim(),
+                                ),
+                              );
+                              if (!context.mounted) {
+                                return;
+                              }
+                              setSheetState(() => submitting = false);
+                              if (!ok) {
+                                return;
+                              }
+                              Navigator.pop(context);
+                              _toast('Feedback submitted to backend');
+                            },
+                      icon: const Icon(Icons.send_outlined),
+                      label: const Text('Submit'),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: description,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  filled: true,
-                ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _syncing
-                    ? null
-                    : () async {
-                        final ok = await _runBackendCommand(
-                          () => widget.backend.submitFeedback(
-                            userId: widget.user.id,
-                            category: category.text.trim().isEmpty
-                                ? 'general'
-                                : category.text.trim(),
-                            description: description.text.trim(),
-                          ),
-                        );
-                        if (!ok || !context.mounted) {
-                          return;
-                        }
-                        Navigator.pop(context);
-                        _toast('Feedback submitted to backend');
-                      },
-                icon: const Icon(Icons.send_outlined),
-                label: const Text('Submit'),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -4691,7 +4775,7 @@ class _ItineraryScreen extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               buildDefaultDragHandles: false,
               itemCount: day.items.length,
-              onReorder: (oldIndex, newIndex) =>
+              onReorderItem: (oldIndex, newIndex) =>
                   onReorder(day, oldIndex, newIndex),
               itemBuilder: (context, index) {
                 final item = day.items[index];
@@ -4834,36 +4918,44 @@ class _SavedScreen extends StatefulWidget {
 }
 
 class _SavedScreenState extends State<_SavedScreen> {
-  final folders = <String>{'Weekend'};
+  final _savedSearch = TextEditingController();
+  final folders = <String>{};
+
+  @override
+  void dispose() {
+    _savedSearch.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final query = _savedSearch.text.trim().toLowerCase();
+    final filteredTrips = widget.trips.where((trip) {
+      final matchesSearch = query.isEmpty ||
+          trip.destination.toLowerCase().contains(query) ||
+          trip.folder.toLowerCase().contains(query) ||
+          trip.dateRange.toLowerCase().contains(query);
+      final matchesFolder = folders.isEmpty || folders.contains(trip.folder);
+      return matchesSearch && matchesFolder;
+    }).toList(growable: false);
+    final upcomingTrips =
+        filteredTrips.where((trip) => trip.upcoming).toList(growable: false);
+    final pastTrips =
+        filteredTrips.where((trip) => !trip.upcoming).toList(growable: false);
+    final filterActive = query.isNotEmpty || folders.isNotEmpty;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
-        const SearchBar(
-          leading: Icon(Icons.search),
+        SearchBar(
+          controller: _savedSearch,
+          leading: const Icon(Icons.search),
           hintText: 'Search saved trips, folders, or destinations',
+          onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 16),
-        const _SectionHeader(title: 'Upcoming Trips', action: 'Nearest first'),
-        const SizedBox(height: 10),
-        for (final trip in widget.trips.where((trip) => trip.upcoming)) ...[
-          _SavedTripCard(
-            trip: trip,
-            onAdd: () => widget.onAdd(trip),
-            onDetail: () => widget.onShowInfo(
-              trip.destination,
-              '${trip.dateRange}\n${trip.itemCount}\n${trip.lastUpdated}',
-            ),
-            onRemove: () => widget.onRemove(trip),
-          ),
-          const SizedBox(height: 10),
-        ],
-        const SizedBox(height: 12),
-        const _SectionHeader(
+        _SectionHeader(
           title: 'Wishlists & Folders',
-          action: 'Weekend | Family | Food | Nature',
+          action: folders.isEmpty ? 'All folders' : folders.join(' | '),
         ),
         const SizedBox(height: 10),
         Wrap(
@@ -4889,19 +4981,59 @@ class _SavedScreenState extends State<_SavedScreen> {
           ],
         ),
         const SizedBox(height: 16),
+        if (filterActive && filteredTrips.isEmpty) ...[
+          const _EmptyStateCard(
+            icon: Icons.search_off_outlined,
+            title: 'No matching saved trips',
+            message: 'Clear search text or folder chips to see all saved trips.',
+          ),
+          const SizedBox(height: 16),
+        ],
+        const _SectionHeader(title: 'Upcoming Trips', action: 'Nearest first'),
+        const SizedBox(height: 10),
+        if (upcomingTrips.isEmpty)
+          const _EmptyStateCard(
+            icon: Icons.event_busy_outlined,
+            title: 'No upcoming trips yet',
+            message:
+                'Save a destination or copy a CityWalk to build your next trip.',
+          )
+        else ...[
+          for (final trip in upcomingTrips) ...[
+            _SavedTripCard(
+              trip: trip,
+              onAdd: () => widget.onAdd(trip),
+              onDetail: () => widget.onShowInfo(
+                trip.destination,
+                '${trip.dateRange}\n${trip.itemCount}\n${trip.lastUpdated}',
+              ),
+              onRemove: () => widget.onRemove(trip),
+            ),
+            const SizedBox(height: 10),
+          ],
+        ],
+        const SizedBox(height: 16),
         const _SectionHeader(title: 'Past Trips', action: 'Travel history'),
         const SizedBox(height: 10),
-        for (final trip in widget.trips.where((trip) => !trip.upcoming)) ...[
-          _SavedTripCard(
-            trip: trip,
-            onAdd: () => widget.onAdd(trip),
-            onDetail: () => widget.onShowInfo(
-              trip.destination,
-              '${trip.dateRange}\n${trip.itemCount}\n${trip.lastUpdated}',
+        if (pastTrips.isEmpty)
+          const _EmptyStateCard(
+            icon: Icons.history_outlined,
+            title: 'No past trips',
+            message: 'Completed or archived trips will appear here later.',
+          )
+        else ...[
+          for (final trip in pastTrips) ...[
+            _SavedTripCard(
+              trip: trip,
+              onAdd: () => widget.onAdd(trip),
+              onDetail: () => widget.onShowInfo(
+                trip.destination,
+                '${trip.dateRange}\n${trip.itemCount}\n${trip.lastUpdated}',
+              ),
+              onRemove: () => widget.onRemove(trip),
             ),
-            onRemove: () => widget.onRemove(trip),
-          ),
-          const SizedBox(height: 10),
+            const SizedBox(height: 10),
+          ],
         ],
       ],
     );
@@ -4924,8 +5056,12 @@ class _SavedTripCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final cardColor =
+        trip.upcoming ? scheme.primaryContainer : scheme.surfaceContainer;
+    final contentColor =
+        trip.upcoming ? scheme.onPrimaryContainer : scheme.onSurface;
     return Card.filled(
-      color: trip.upcoming ? scheme.primaryContainer : scheme.surfaceContainer,
+      color: cardColor,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -4936,14 +5072,19 @@ class _SavedTripCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     trip.destination,
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: contentColor,
+                        ),
                   ),
                 ),
                 Chip(label: Text(trip.folder)),
               ],
             ),
             const SizedBox(height: 6),
-            Text('${trip.dateRange} | ${trip.itemCount} | ${trip.lastUpdated}'),
+            Text(
+              '${trip.dateRange} | ${trip.itemCount} | ${trip.lastUpdated}',
+              style: TextStyle(color: contentColor),
+            ),
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
@@ -5162,15 +5303,25 @@ class _SectionHeader extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
         ),
         if (action != null)
-          Text(
-            action!,
-            style: Theme.of(context)
-                .textTheme
-                .labelLarge
-                ?.copyWith(color: Theme.of(context).colorScheme.primary),
+          Flexible(
+            child: Text(
+              action!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelLarge
+                  ?.copyWith(color: Theme.of(context).colorScheme.primary),
+            ),
           ),
       ],
     );
@@ -5193,6 +5344,55 @@ class _InfoTile extends StatelessWidget {
             Icon(icon, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 12),
             Expanded(child: Text(text)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyStateCard extends StatelessWidget {
+  const _EmptyStateCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card.outlined(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: scheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    message,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

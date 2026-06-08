@@ -27,6 +27,10 @@ Future<void> main(List<String> arguments) async {
   });
 
   try {
+    if (config.rebuildWeb) {
+      await _buildWeb(config);
+    }
+
     final backendAlreadyRunning = await _backendReady(config.apiBase);
     if (backendAlreadyRunning) {
       stdout.writeln('Backend already running: ${config.apiBase}');
@@ -120,6 +124,9 @@ Future<Process> _startBackend(_LocalDemoConfig config) async {
       'WAYFARE_ALLOWED_ORIGINS':
           '${config.webBase},http://localhost:${config.webPort}',
       'WAYFARE_DB_PATH': 'data/wayfare.sqlite',
+      if (config.amapKeys.webServiceKey case final key?) ...{
+        'AMAP_WEB_SERVICE_KEY': key,
+      },
     },
   );
   process.stdout.transform(utf8.decoder).listen(stdout.write);
@@ -179,6 +186,39 @@ Future<void> _serveWeb(HttpRequest request, Directory webDirectory) async {
   await file.openRead().pipe(request.response);
 }
 
+Future<void> _buildWeb(_LocalDemoConfig config) async {
+  final jsKey = config.amapKeys.webJsKey;
+  if (jsKey == null || jsKey.isEmpty) {
+    throw StateError(
+      'Missing Wayfare_WebJS key. Provide --amap-key-file or --amap-web-js-key.',
+    );
+  }
+
+  stdout.writeln('Building Flutter Web with local AMap configuration.');
+  final args = [
+    'build',
+    'web',
+    '--release',
+    '--no-pub',
+    '--pwa-strategy=none',
+    '--dart-define=WAYFARE_API_BASE=${config.apiBase}',
+    '--dart-define=AMAP_JS_KEY=$jsKey',
+    if (config.amapKeys.webJsSecurityCode case final code?)
+      '--dart-define=AMAP_JS_SECURITY_CODE=$code',
+  ];
+  final process = await Process.start(
+    'flutter',
+    args,
+    mode: ProcessStartMode.normal,
+  );
+  process.stdout.transform(utf8.decoder).listen(stdout.write);
+  process.stderr.transform(utf8.decoder).listen(stderr.write);
+  final exitCode = await process.exitCode;
+  if (exitCode != 0) {
+    throw StateError('Flutter Web build failed with exit code $exitCode.');
+  }
+}
+
 ContentType _contentType(String path) {
   if (path.endsWith('.html')) {
     return ContentType.html;
@@ -211,6 +251,8 @@ class _LocalDemoConfig {
     required this.timeout,
     required this.authSecret,
     required this.opsToken,
+    required this.amapKeys,
+    required this.rebuildWeb,
   });
 
   factory _LocalDemoConfig.fromArgs(List<String> arguments) {
@@ -220,6 +262,21 @@ class _LocalDemoConfig {
         8080;
     final webPort =
         int.tryParse(_optionValue(arguments, '--web-port') ?? '') ?? 8092;
+    final keyFile = File(
+      _optionValue(arguments, '--amap-key-file') ?? '../高德.txt',
+    );
+    final fileKeys = keyFile.existsSync()
+        ? parseAmapLocalKeys(keyFile.readAsStringSync())
+        : const AmapLocalKeys();
+    final env = Platform.environment;
+    final cliKeys = AmapLocalKeys(
+      webServiceKey: _optionValue(arguments, '--amap-web-service-key') ??
+          env['AMAP_WEB_SERVICE_KEY'],
+      webJsKey:
+          _optionValue(arguments, '--amap-web-js-key') ?? env['AMAP_JS_KEY'],
+      webJsSecurityCode: _optionValue(arguments, '--amap-js-security-code') ??
+          env['AMAP_JS_SECURITY_CODE'],
+    );
     return _LocalDemoConfig(
       backendPort: backendPort,
       webPort: webPort,
@@ -238,6 +295,8 @@ class _LocalDemoConfig {
           'local-demo-auth-secret-with-at-least-32-chars',
       opsToken: _optionValue(arguments, '--ops-token') ??
           'local-demo-ops-token-with-at-least-32-chars',
+      amapKeys: fileKeys.merge(cliKeys),
+      rebuildWeb: arguments.contains('--rebuild-web'),
     );
   }
 
@@ -249,10 +308,70 @@ class _LocalDemoConfig {
   final Duration timeout;
   final String authSecret;
   final String opsToken;
+  final AmapLocalKeys amapKeys;
+  final bool rebuildWeb;
 
   Uri get apiBase => Uri.parse('http://127.0.0.1:$backendPort');
 
   Uri get webBase => Uri.parse('http://127.0.0.1:$webPort');
+}
+
+class AmapLocalKeys {
+  const AmapLocalKeys({
+    this.webServiceKey,
+    this.webJsKey,
+    this.webJsSecurityCode,
+  });
+
+  final String? webServiceKey;
+  final String? webJsKey;
+  final String? webJsSecurityCode;
+
+  AmapLocalKeys merge(AmapLocalKeys overrides) {
+    return AmapLocalKeys(
+      webServiceKey: overrides.webServiceKey ?? webServiceKey,
+      webJsKey: overrides.webJsKey ?? webJsKey,
+      webJsSecurityCode: overrides.webJsSecurityCode ?? webJsSecurityCode,
+    );
+  }
+}
+
+AmapLocalKeys parseAmapLocalKeys(String content) {
+  String? webServiceKey;
+  String? webJsKey;
+  String? webJsSecurityCode;
+
+  for (final line in const LineSplitter().convert(content)) {
+    final trimmed = line.trim();
+    if (trimmed.isEmpty || trimmed.startsWith('#')) {
+      continue;
+    }
+    if (trimmed.contains('Wayfare_WebSvc')) {
+      webServiceKey = _extractApiKey(trimmed) ?? webServiceKey;
+      continue;
+    }
+    if (trimmed.contains('Wayfare_WebJS')) {
+      webJsKey = _extractApiKey(trimmed) ?? webJsKey;
+      continue;
+    }
+    final securityMatch = RegExp(
+      r'^(?:Security_code|security_code|AMAP_JS_SECURITY_CODE|securityJsCode)\s*[:=]\s*(\S+)',
+    ).firstMatch(trimmed);
+    if (securityMatch != null) {
+      webJsSecurityCode = securityMatch.group(1);
+    }
+  }
+
+  return AmapLocalKeys(
+    webServiceKey: webServiceKey,
+    webJsKey: webJsKey,
+    webJsSecurityCode: webJsSecurityCode,
+  );
+}
+
+String? _extractApiKey(String line) {
+  final match = RegExp(r'api_key\s*[:=]\s*(\S+)').firstMatch(line);
+  return match?.group(1);
 }
 
 String? _optionValue(List<String> arguments, String name) {
@@ -278,6 +397,11 @@ Options:
   --backend-port <port>       Backend port, default 8080.
   --web-port <port>           Frontend static server port, default 8092.
   --web-dir <path>            Built Flutter Web directory, default build/web.
+  --rebuild-web               Rebuild Flutter Web before serving.
+  --amap-key-file <path>      Local AMap key file, default ../高德.txt when present.
+  --amap-web-service-key <k>  Backend AMap Web Service key override.
+  --amap-web-js-key <k>       Web AMap JS key override.
+  --amap-js-security-code <c> Web AMap security code override.
   --identifier <value>        Login identifier for the smoke check.
   --query <value>             Search query for the smoke check.
   --timeout-seconds <number>  Startup and smoke timeout.

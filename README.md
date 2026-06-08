@@ -126,6 +126,17 @@ This starts or reuses the backend on `127.0.0.1:8080`, starts or reuses the
 Flutter Web shell on `127.0.0.1:8092`, runs the local smoke check, and keeps the
 demo available until you stop the command.
 
+To rebuild Web from the external AMap key file before starting the demo:
+
+```powershell
+dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt --amap-js-security-code=your_security_code
+```
+
+The key file is expected to contain `Wayfare_WebSvc api_key:<key>` for the
+backend Web Service key and `Wayfare_WebJS api_key:<key>` for the Web JS key.
+If the file also contains `Security_code:<code>`, the explicit
+`--amap-js-security-code` flag is not needed.
+
 Then verify the basic local demo path:
 
 ```powershell

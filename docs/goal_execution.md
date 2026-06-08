@@ -458,6 +458,14 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Expanded local smoke beyond login/search to cover itinerary creation, day creation, item creation, itinerary listing/cleanup, saved item creation/listing/cleanup, and feedback validation.
 - Acceptance link: `dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092` now proves the basic authenticated write/read paths before handoff.
 
+## AMap Repeatable Startup Iteration
+
+### A00/A01/A06/A07
+
+- Files: `tool/local_demo.dart`, `test/local_demo_test.dart`, `README.md`, `AGENTS.md`, `docs/goal_execution.md`
+- Change: Extended the local demo startup tool to read AMap credentials from the external key file, map `Wayfare_WebSvc` to the backend Web Service key, map the first `Wayfare_WebJS` token to the Web JS key, accept `Security_code` or CLI/environment overrides, and optionally rebuild Flutter Web with `--rebuild-web`.
+- Acceptance link: Future local restarts can reproduce the AMap-enabled demo without committing keys or hand-writing shell extraction commands.
+
 ## Verification Results
 
 Runnable:
@@ -511,7 +519,7 @@ No issues found.
 
 ```text
 flutter test
-5 tests passed.
+7 tests passed.
 ```
 
 ```text
@@ -551,6 +559,12 @@ Result: returned live `amap_poi` records from AMap Web Service.
 AMap Web map
 In-app browser at http://127.0.0.1:8092/?amapFresh=2
 Result: Explore Map rendered the AMap canvas with map tiles, zoom controls, and AutoNavi attribution; browser logs had no errors or warnings.
+```
+
+```text
+AMap repeatable startup parser
+flutter test --no-pub test/local_demo_test.dart
+Result: parsed Wayfare_WebSvc, the first Wayfare_WebJS token, and Security_code without including trailing fields.
 ```
 
 ```text

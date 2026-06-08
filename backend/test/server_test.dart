@@ -152,6 +152,114 @@ void main() {
     expect(item['description'], 'The saved trips filter is useful.');
   });
 
+  test('itinerary and saved mutations validate request schemas', () async {
+    final token = await server.login();
+
+    final missingDestination = await server.post(
+      '/itineraries',
+      {
+        'title': 'Schema Trip',
+        'startDate': '2026-06-08',
+        'endDate': '2026-06-09',
+      },
+      token: token,
+    );
+    expect(missingDestination.statusCode, HttpStatus.badRequest);
+    expect(missingDestination.json['error'], 'destination is required.');
+
+    final invalidDate = await server.post(
+      '/itineraries',
+      {
+        'title': 'Schema Trip',
+        'destination': 'Hangzhou',
+        'startDate': '2026-99-08',
+        'endDate': '2026-06-09',
+      },
+      token: token,
+    );
+    expect(invalidDate.statusCode, HttpStatus.badRequest);
+    expect(
+        invalidDate.json['error'], 'startDate must be a real calendar date.');
+
+    final trip = await server.post(
+      '/itineraries',
+      {
+        'title': 'Schema Trip',
+        'destination': 'Hangzhou',
+        'startDate': '2026-06-08',
+        'endDate': '2026-06-09',
+      },
+      token: token,
+    );
+    expect(trip.statusCode, HttpStatus.created);
+    final tripId =
+        ((trip.json['item'] as Map<String, Object?>)['id'] as String);
+
+    final invalidDay = await server.post(
+      '/itineraries/$tripId/days',
+      {
+        'title': 'Day 1',
+        'date': 'tomorrow',
+        'city': 'Hangzhou',
+      },
+      token: token,
+    );
+    expect(invalidDay.statusCode, HttpStatus.badRequest);
+    expect(invalidDay.json['error'], 'date must use YYYY-MM-DD format.');
+
+    final day = await server.post(
+      '/itineraries/$tripId/days',
+      {
+        'title': 'Day 1',
+        'date': '2026-06-08',
+        'city': 'Hangzhou',
+      },
+      token: token,
+    );
+    expect(day.statusCode, HttpStatus.created);
+    final dayId = ((day.json['item'] as Map<String, Object?>)['id'] as String);
+
+    final invalidPoint = await server.post(
+      '/itineraries/$tripId/days/$dayId/items',
+      {
+        'time': '09:00',
+        'placeName': 'West Lake',
+        'activity': 'Walk',
+        'lat': 30.2431,
+      },
+      token: token,
+    );
+    expect(invalidPoint.statusCode, HttpStatus.badRequest);
+    expect(
+        invalidPoint.json['error'], 'lat and lng must be provided together.');
+
+    final invalidReorder = await server.post(
+      '/itineraries/$tripId/days/$dayId/items/reorder',
+      {
+        'itemIds': ['item-a', 'item-a']
+      },
+      token: token,
+      method: 'PATCH',
+    );
+    expect(invalidReorder.statusCode, HttpStatus.badRequest);
+    expect(
+        invalidReorder.json['error'], 'itemIds must not contain duplicates.');
+
+    final invalidSaved = await server.post(
+      '/saved',
+      {
+        'type': 'ticket',
+        'refId': 'dest-hangzhou',
+      },
+      token: token,
+    );
+    expect(invalidSaved.statusCode, HttpStatus.badRequest);
+    expect(
+      invalidSaved.json['error'],
+      'type must be destination, itinerary, or place.',
+    );
+  });
+
   test('missing itinerary day or item returns 404', () async {
     final token = await server.login();
     final trip = await server.post(
@@ -159,6 +267,8 @@ void main() {
         {
           'title': 'Integration Trip',
           'destination': 'Hangzhou',
+          'startDate': '2026-06-08',
+          'endDate': '2026-06-09',
         },
         token: token);
     final tripId =
@@ -272,8 +382,9 @@ class _ServerHarness {
     String path,
     Map<String, Object?> body, {
     String? token,
+    String method = 'POST',
   }) {
-    return _request('POST', path, body: body, token: token);
+    return _request(method, path, body: body, token: token);
   }
 
   Future<_JsonResponse> delete(String path, {String? token}) {

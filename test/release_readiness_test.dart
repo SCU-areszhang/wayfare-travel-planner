@@ -94,6 +94,8 @@ const sessions = 'sessions';
 const rateLimit = 'WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW';
 class RateLimiter {}
 void revokeSession() {}
+void _validateCreateItinerary() {}
+void _validateCreateSavedItem() {}
 String _sessionTokenHash(String token) => token;
 ''');
   _write(root, '.github/workflows/ci.yml', '''

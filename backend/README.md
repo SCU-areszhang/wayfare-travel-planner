@@ -95,7 +95,7 @@ The server derives the user id from a hashed, server-side session. Client-provid
 
 ## Next Backend Steps
 
-1. Add full request schema validation for itinerary and saved-trip mutations.
-2. Replace the built-in session table with a production identity provider when team or compliance needs require SSO, MFA, or centralized audit.
+1. Replace the built-in session table with a production identity provider when team or compliance needs require SSO, MFA, or centralized audit.
+2. Move SQLite migrations, backups, and rate-limit counters to production-grade infrastructure for multi-node deployments.
 3. Split the growing server file into route/store/model modules.
 4. Add a map provider adapter for the final Web AMap integration.

@@ -154,7 +154,7 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       body['userId'] = session.userId;
       return _json(
         request,
-        {'item': store.createItinerary(body)},
+        {'item': store.createItinerary(_validateCreateItinerary(body))},
         status: HttpStatus.created,
       );
     }
@@ -175,7 +175,7 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       body['userId'] = session.userId;
       return _json(
         request,
-        {'item': store.createSavedItem(body)},
+        {'item': store.createSavedItem(_validateCreateSavedItem(body))},
         status: HttpStatus.created,
       );
     }
@@ -249,7 +249,10 @@ Future<void> _handleItinerary(
 
   if (request.method == 'PATCH' && path.length == 2) {
     final body = await _body(request);
-    return _json(request, {'item': store.updateItinerary(path[1], body)});
+    return _json(
+      request,
+      {'item': store.updateItinerary(path[1], _validateUpdateItinerary(body))},
+    );
   }
 
   if (request.method == 'DELETE' && path.length == 2) {
@@ -261,7 +264,7 @@ Future<void> _handleItinerary(
     final body = await _body(request);
     return _json(
       request,
-      {'item': store.addDay(path[1], body)},
+      {'item': store.addDay(path[1], _validateAddDay(body))},
       status: HttpStatus.created,
     );
   }
@@ -273,7 +276,7 @@ Future<void> _handleItinerary(
     final body = await _body(request);
     return _json(
       request,
-      {'item': store.addItem(path[1], path[3], body)},
+      {'item': store.addItem(path[1], path[3], _validateAddItem(body))},
       status: HttpStatus.created,
     );
   }
@@ -283,14 +286,21 @@ Future<void> _handleItinerary(
       final body = await _body(request);
       return _json(
         request,
-        {'items': store.reorderItems(path[1], path[3], body)},
+        {'items': store.reorderItems(path[1], path[3], _validateReorder(body))},
       );
     }
     if (request.method == 'PATCH') {
       final body = await _body(request);
       return _json(
         request,
-        {'item': store.updateItem(path[1], path[3], path[5], body)},
+        {
+          'item': store.updateItem(
+            path[1],
+            path[3],
+            path[5],
+            _validateUpdateItem(body),
+          )
+        },
       );
     }
     if (request.method == 'DELETE') {
@@ -2727,6 +2737,318 @@ int _queryLimit(String? raw) {
     return 50;
   }
   return parsed;
+}
+
+Map<String, Object?> _validateCreateItinerary(Map<String, Object?> body) {
+  final days = body['days'];
+  if (days != null && days is! List) {
+    throw const FormatException('days must be an array.');
+  }
+  return {
+    if (_optionalText(body, 'id', maxLength: 80) case final id?) 'id': id,
+    'userId': _requiredText(body, 'userId', maxLength: 120),
+    'title': _requiredText(body, 'title', maxLength: 120),
+    'destination': _requiredText(body, 'destination', maxLength: 120),
+    'startDate': _requiredDate(body, 'startDate'),
+    'endDate': _requiredDate(body, 'endDate'),
+    'status': _status(body['status']),
+    'days': days == null ? <Map<String, Object?>>[] : _validateDays(days),
+  };
+}
+
+Map<String, Object?> _validateUpdateItinerary(Map<String, Object?> body) {
+  final update = <String, Object?>{};
+  if (body.containsKey('title')) {
+    update['title'] = _requiredText(body, 'title', maxLength: 120);
+  }
+  if (body.containsKey('destination')) {
+    update['destination'] = _requiredText(body, 'destination', maxLength: 120);
+  }
+  if (body.containsKey('startDate')) {
+    update['startDate'] = _requiredDate(body, 'startDate');
+  }
+  if (body.containsKey('endDate')) {
+    update['endDate'] = _requiredDate(body, 'endDate');
+  }
+  if (body.containsKey('status')) {
+    update['status'] = _status(body['status']);
+  }
+  if (update.isEmpty) {
+    throw const FormatException('No supported itinerary fields were provided.');
+  }
+  return update;
+}
+
+Map<String, Object?> _validateAddDay(Map<String, Object?> body) {
+  final dayIndex = _optionalPositiveInt(body, 'dayIndex', max: 366);
+  return {
+    if (dayIndex != null) 'dayIndex': dayIndex,
+    'title': _requiredText(body, 'title', maxLength: 80),
+    'date': _requiredDate(body, 'date'),
+    'city': _requiredText(body, 'city', maxLength: 80),
+    'reminder': _optionalText(body, 'reminder', maxLength: 500) ?? '',
+  };
+}
+
+Map<String, Object?> _validateAddItem(Map<String, Object?> body) {
+  final item = <String, Object?>{
+    'time': _requiredText(body, 'time', maxLength: 40),
+    'placeName': _requiredPlaceName(body),
+    'activity': _requiredText(body, 'activity', maxLength: 120),
+    'note': _optionalText(body, 'note', maxLength: 1000) ?? '',
+    'status': _status(body['status']),
+  };
+  if (_optionalText(body, 'placeId', maxLength: 120) case final placeId?) {
+    item['placeId'] = placeId;
+  }
+  if (_optionalPositiveInt(body, 'order', max: 1000) case final order?) {
+    item['order'] = order;
+  }
+  item.addAll(_optionalPoint(body));
+  return item;
+}
+
+Map<String, Object?> _validateUpdateItem(Map<String, Object?> body) {
+  final item = <String, Object?>{};
+  if (_optionalText(body, 'targetDayId', maxLength: 120)
+      case final targetDayId?) {
+    item['targetDayId'] = targetDayId;
+  }
+  if (body.containsKey('time')) {
+    item['time'] = _requiredText(body, 'time', maxLength: 40);
+  }
+  if (body.containsKey('placeName') || body.containsKey('place')) {
+    item['placeName'] = _requiredPlaceName(body);
+  }
+  if (body.containsKey('activity')) {
+    item['activity'] = _requiredText(body, 'activity', maxLength: 120);
+  }
+  if (body.containsKey('note')) {
+    item['note'] = _optionalText(body, 'note', maxLength: 1000) ?? '';
+  }
+  if (body.containsKey('status')) {
+    item['status'] = _status(body['status']);
+  }
+  item.addAll(_optionalPoint(body));
+  if (item.isEmpty) {
+    throw const FormatException(
+        'No supported itinerary item fields were provided.');
+  }
+  return item;
+}
+
+Map<String, Object?> _validateReorder(Map<String, Object?> body) {
+  final raw = body['itemIds'];
+  if (raw is! List) {
+    throw const FormatException('itemIds is required.');
+  }
+  if (raw.isEmpty) {
+    throw const FormatException('itemIds must not be empty.');
+  }
+  if (raw.length > 200) {
+    throw const FormatException('itemIds must contain at most 200 entries.');
+  }
+  final ids = <String>[];
+  final seen = <String>{};
+  for (final value in raw) {
+    final id = value?.toString().trim() ?? '';
+    if (id.isEmpty) {
+      throw const FormatException('itemIds entries must be non-empty strings.');
+    }
+    if (!seen.add(id)) {
+      throw const FormatException('itemIds must not contain duplicates.');
+    }
+    ids.add(id);
+  }
+  return {'itemIds': ids};
+}
+
+Map<String, Object?> _validateCreateSavedItem(Map<String, Object?> body) {
+  final type = _savedType(body['type']);
+  final refId = _optionalText(body, 'refId', maxLength: 120) ??
+      _optionalText(body, 'destination', maxLength: 120);
+  if (refId == null) {
+    throw const FormatException('refId is required.');
+  }
+  return {
+    'userId': _requiredText(body, 'userId', maxLength: 120),
+    'type': type,
+    'refId': refId,
+    'label': _optionalText(body, 'label', maxLength: 120) ?? refId,
+    'folder': _optionalText(body, 'folder', maxLength: 80) ?? 'Weekend',
+  };
+}
+
+List<Map<String, Object?>> _validateDays(Object raw) {
+  if (raw is! List) {
+    throw const FormatException('days must be an array.');
+  }
+  if (raw.length > 31) {
+    throw const FormatException('days must contain at most 31 entries.');
+  }
+  return raw.map((entry) {
+    if (entry is! Map) {
+      throw const FormatException('days entries must be objects.');
+    }
+    final day = entry.map<String, Object?>(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+    final items = day['items'];
+    if (items != null && items is! List) {
+      throw const FormatException('day items must be arrays.');
+    }
+    return {
+      if (_optionalText(day, 'id', maxLength: 120) case final id?) 'id': id,
+      'dayIndex': _optionalPositiveInt(day, 'dayIndex', max: 366) ?? 1,
+      'title': _requiredText(day, 'title', maxLength: 80),
+      'date': _requiredDate(day, 'date'),
+      'city': _requiredText(day, 'city', maxLength: 80),
+      'reminder': _optionalText(day, 'reminder', maxLength: 500) ?? '',
+      'items': items == null ? <Map<String, Object?>>[] : _validateItems(items),
+    };
+  }).toList();
+}
+
+List<Map<String, Object?>> _validateItems(Object raw) {
+  if (raw is! List) {
+    throw const FormatException('items must be an array.');
+  }
+  if (raw.length > 200) {
+    throw const FormatException('items must contain at most 200 entries.');
+  }
+  return raw.map((entry) {
+    if (entry is! Map) {
+      throw const FormatException('items entries must be objects.');
+    }
+    final item = entry.map<String, Object?>(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+    return {
+      if (_optionalText(item, 'id', maxLength: 120) case final id?) 'id': id,
+      ..._validateAddItem(item),
+    };
+  }).toList();
+}
+
+String _requiredPlaceName(Map<String, Object?> body) {
+  final value = _optionalText(body, 'placeName', maxLength: 120) ??
+      _optionalText(body, 'place', maxLength: 120);
+  if (value == null) {
+    throw const FormatException('placeName is required.');
+  }
+  return value;
+}
+
+String _requiredText(
+  Map<String, Object?> body,
+  String field, {
+  required int maxLength,
+}) {
+  final value = _optionalText(body, field, maxLength: maxLength);
+  if (value == null) {
+    throw FormatException('$field is required.');
+  }
+  return value;
+}
+
+String? _optionalText(
+  Map<String, Object?> body,
+  String field, {
+  required int maxLength,
+}) {
+  if (!body.containsKey(field) || body[field] == null) {
+    return null;
+  }
+  final value = body[field];
+  if (value is! String) {
+    throw FormatException('$field must be a string.');
+  }
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  if (trimmed.length > maxLength) {
+    throw FormatException('$field must be at most $maxLength characters.');
+  }
+  return trimmed;
+}
+
+String _requiredDate(Map<String, Object?> body, String field) {
+  final value = _requiredText(body, field, maxLength: 10);
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
+  if (match == null) {
+    throw FormatException('$field must use YYYY-MM-DD format.');
+  }
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final parsed = DateTime.utc(year, month, day);
+  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+    throw FormatException('$field must be a real calendar date.');
+  }
+  return value;
+}
+
+int? _optionalPositiveInt(
+  Map<String, Object?> body,
+  String field, {
+  required int max,
+}) {
+  if (!body.containsKey(field) || body[field] == null) {
+    return null;
+  }
+  final value = body[field];
+  final parsed = value is int ? value : int.tryParse(value.toString());
+  if (parsed == null || parsed < 1 || parsed > max) {
+    throw FormatException('$field must be an integer from 1 to $max.');
+  }
+  return parsed;
+}
+
+Map<String, Object?> _optionalPoint(Map<String, Object?> body) {
+  final hasLat = body.containsKey('lat') && body['lat'] != null;
+  final hasLng = body.containsKey('lng') && body['lng'] != null;
+  if (!hasLat && !hasLng) {
+    return {};
+  }
+  if (hasLat != hasLng) {
+    throw const FormatException('lat and lng must be provided together.');
+  }
+  final lat = _coordinate(body['lat'], 'lat', min: -90, max: 90);
+  final lng = _coordinate(body['lng'], 'lng', min: -180, max: 180);
+  return {'lat': lat, 'lng': lng};
+}
+
+double _coordinate(
+  Object? value,
+  String field, {
+  required double min,
+  required double max,
+}) {
+  final parsed = value is num ? value.toDouble() : double.tryParse('$value');
+  if (parsed == null || parsed < min || parsed > max || !parsed.isFinite) {
+    throw FormatException('$field must be a coordinate from $min to $max.');
+  }
+  return parsed;
+}
+
+String _status(Object? value) {
+  final status = value?.toString().trim() ?? 'draft';
+  const allowed = {'draft', 'saved', 'archived'};
+  if (!allowed.contains(status)) {
+    throw const FormatException('status must be draft, saved, or archived.');
+  }
+  return status;
+}
+
+String _savedType(Object? value) {
+  final type = value?.toString().trim() ?? 'destination';
+  const allowed = {'destination', 'itinerary', 'place'};
+  if (!allowed.contains(type)) {
+    throw const FormatException(
+        'type must be destination, itinerary, or place.');
+  }
+  return type;
 }
 
 String _displayName(String identifier) {

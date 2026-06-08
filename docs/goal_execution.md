@@ -372,6 +372,20 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added backend regression coverage for configured auth throttling and updated release readiness fixtures.
 - Acceptance link: `dart test` proves the backend returns 429 after the configured auth limit.
 
+## Backend Schema-Validation Iteration
+
+### A05/A07
+
+- Files: `backend/bin/server.dart`, `backend/README.md`, `tool/release_readiness.dart`
+- Change: Added API-layer schema validation for itinerary create/update, day creation, item create/update, item reorder, and saved-trip creation. Validation now covers required intent fields, string lengths, allowed statuses/types, real `YYYY-MM-DD` dates, non-empty reorder IDs, duplicate reorder IDs, and paired/ranged coordinates.
+- Acceptance link: User-owned mutation endpoints no longer silently accept malformed shapes or persist placeholder `TBD` data from bad requests.
+
+### A06
+
+- Files: `backend/test/server_test.dart`, `test/release_readiness_test.dart`
+- Change: Added backend regression coverage for itinerary and saved mutation validation and extended release readiness fixtures.
+- Acceptance link: `dart test` proves malformed itinerary/saved mutations return 400 with explicit errors.
+
 ## Verification Results
 
 Runnable:
@@ -440,7 +454,7 @@ backend: No issues found.
 
 ```text
 dart test
-backend: 9 tests passed.
+backend: 10 tests passed.
 ```
 
 ```text

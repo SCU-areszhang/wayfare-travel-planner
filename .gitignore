@@ -4,7 +4,6 @@
 .packages
 build/
 coverage/
-pubspec.lock
 *.log
 devtools_options.yaml
 .DS_Store

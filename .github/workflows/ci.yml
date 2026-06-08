@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - codex/**
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.44.1"
+          cache: true
+
+      - name: Verify formatting
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            lib test backend/bin backend/test
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze Flutter app
+        run: flutter analyze --no-pub
+
+      - name: Test Flutter app
+        run: flutter test --no-pub
+
+      - name: Build Flutter web
+        run: flutter build web --release --no-pub --pwa-strategy=none
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: dart pub get
+
+      - name: Analyze backend
+        working-directory: backend
+        run: dart analyze
+
+      - name: Test backend
+        working-directory: backend
+        env:
+          WAYFARE_AUTH_SECRET: ci-session-token-secret
+        run: dart test

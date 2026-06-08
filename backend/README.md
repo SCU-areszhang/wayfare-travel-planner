@@ -16,6 +16,15 @@ Default URL: `http://127.0.0.1:8080`
 
 Database file: `backend/data/wayfare.sqlite`
 
+Production-oriented configuration:
+
+- `WAYFARE_AUTH_SECRET`: HMAC secret used to sign Bearer session tokens. Set this for any shared or deployed environment.
+- `WAYFARE_SESSION_DAYS`: session lifetime in days, clamped to 1-30. Default: `7`.
+- `WAYFARE_ALLOWED_ORIGINS`: comma-separated CORS allow-list. If unset, only loopback origins are allowed for local development.
+- `WAYFARE_BIND_HOST`: bind address. Default: `127.0.0.1`.
+- `WAYFARE_DB_PATH`: SQLite path. Default: `data/wayfare.sqlite`.
+- `AMAP_WEB_SERVICE_KEY`: optional backend AMap Web Service key for live POI search.
+
 ## Current Data Boundaries
 
 - `User`: account id, phone, display name, preferences, budget, travel style.
@@ -32,7 +41,7 @@ Database file: `backend/data/wayfare.sqlite`
 
 - `GET /health`
 - `POST /auth/send-code`
-- `POST /auth/login` with `identifier`, `phone`, or `email`. Unknown identifiers are automatically registered and signed in.
+- `POST /auth/login` with `identifier`, `phone`, or `email`. Unknown identifiers are automatically registered and signed in. The response includes a signed Bearer `token` and `expiresAt`.
 - `GET /me`
 - `GET /destinations`
 - `GET /destinations/:id`
@@ -54,9 +63,17 @@ Database file: `backend/data/wayfare.sqlite`
 - `DELETE /saved/:id`
 - `POST /feedback`
 
+User-specific routes require:
+
+```text
+Authorization: Bearer <token-from-auth-login>
+```
+
+The server derives the user id from the verified token. Client-provided `userId` values in query strings or JSON bodies are ignored for user-owned resources.
+
 ## Next Backend Steps
 
-1. Add request validation and stable error codes.
-2. Add JWT/session validation for user-specific routes.
+1. Add full request schema validation for itinerary and saved-trip mutations.
+2. Move session storage to a revocable server-side session table or production identity provider.
 3. Split the growing server file into route/store/model modules.
 4. Add a map provider adapter for the final Web AMap integration.

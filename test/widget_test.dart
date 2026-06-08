@@ -8,7 +8,7 @@ void main() {
   testWidgets('Wayfare app logs in and renders home dashboard', (tester) async {
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(const WayfareApp(backend: _FakeBackend()));
+    await tester.pumpWidget(WayfareApp(backend: const _FakeBackend()));
     await tester.pumpAndSettle();
 
     expect(find.text('Wayfare'), findsOneWidget);
@@ -32,14 +32,22 @@ class _FakeBackend implements WayfareBackend {
   const _FakeBackend();
 
   @override
+  void setSessionToken(String? token) {}
+
+  @override
   Future<BackendLoginResult> loginOrRegister(String identifier) async {
+    final expiresAt = DateTime.now().toUtc().add(const Duration(days: 7));
     return BackendLoginResult(
       registered: true,
       user: AppUser(
         id: 'user-test',
         identifier: identifier,
         displayName: 'Test Traveler',
+        sessionToken: 'fake-session-token',
+        sessionExpiresAt: expiresAt,
       ),
+      sessionToken: 'fake-session-token',
+      sessionExpiresAt: expiresAt,
     );
   }
 

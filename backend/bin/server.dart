@@ -1,7 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
 import 'package:sqlite3/sqlite3.dart';
+
+final _secureRandom = math.Random.secure();
 
 void main(List<String> args) async {
   final port = int.tryParse(
@@ -11,8 +15,13 @@ void main(List<String> args) async {
   final databasePath =
       Platform.environment['WAYFARE_DB_PATH'] ?? 'data/wayfare.sqlite';
   final store = SqliteStore.open(databasePath);
-  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
-  stdout.writeln('Wayfare SQLite backend listening on http://localhost:$port');
+  final bindHost = Platform.environment['WAYFARE_BIND_HOST'] ?? '127.0.0.1';
+  final bindAddress =
+      InternetAddress.tryParse(bindHost) ?? InternetAddress.loopbackIPv4;
+  final server = await HttpServer.bind(bindAddress, port);
+  stdout.writeln(
+    'Wayfare SQLite backend listening on http://${bindAddress.address}:$port',
+  );
 
   await for (final request in server) {
     await _handle(request, store);
@@ -20,7 +29,7 @@ void main(List<String> args) async {
 }
 
 Future<void> _handle(HttpRequest request, SqliteStore store) async {
-  _applyCors(request.response);
+  _applyCors(request);
   if (request.method == 'OPTIONS') {
     request.response.statusCode = HttpStatus.noContent;
     await request.response.close();
@@ -35,7 +44,7 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       return _json(request, {
         'name': 'Wayfare backend',
         'storage': 'SQLite',
-        'database': store.path,
+        'database': _databaseLabel(store.path),
       });
     }
 
@@ -43,8 +52,9 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       return _json(request, {
         'status': 'ok',
         'storage': 'SQLite',
-        'database': store.path,
+        'database': _databaseLabel(store.path),
         'userCount': store.userCount(),
+        'auth': _authMode(),
       });
     }
 
@@ -59,7 +69,12 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
         return _badRequest(request, identifierError);
       }
       final result = store.loginOrRegister(identifier!);
-      return _json(request, result);
+      final user = result['user'] as Map<String, Object?>;
+      final session = _issueSession(user['id'].toString());
+      return _json(request, {
+        ...result,
+        ...session,
+      });
     }
 
     if (method == 'POST' && _matches(path, ['auth', 'send-code'])) {
@@ -80,8 +95,8 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     }
 
     if (method == 'GET' && _matches(path, ['me'])) {
-      final userId = request.headers.value('x-user-id') ?? 'user-dev-1';
-      final user = store.userById(userId);
+      final session = _requireSession(request, store);
+      final user = store.userById(session.userId);
       if (user == null) {
         return _notFound(request, 'User not found');
       }
@@ -118,12 +133,14 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     }
 
     if (method == 'GET' && _matches(path, ['itineraries'])) {
-      final userId = request.uri.queryParameters['userId'] ?? 'user-dev-1';
-      return _json(request, {'items': store.itineraries(userId)});
+      final session = _requireSession(request, store);
+      return _json(request, {'items': store.itineraries(session.userId)});
     }
 
     if (method == 'POST' && _matches(path, ['itineraries'])) {
+      final session = _requireSession(request, store);
       final body = await _body(request);
+      body['userId'] = session.userId;
       return _json(
         request,
         {'item': store.createItinerary(body)},
@@ -132,16 +149,19 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     }
 
     if (path.length >= 2 && path.first == 'itineraries') {
-      return await _handleItinerary(request, path, store);
+      final session = _requireSession(request, store);
+      return await _handleItinerary(request, path, store, session);
     }
 
     if (method == 'GET' && _matches(path, ['saved'])) {
-      final userId = request.uri.queryParameters['userId'] ?? 'user-dev-1';
-      return _json(request, {'items': store.savedTrips(userId)});
+      final session = _requireSession(request, store);
+      return _json(request, {'items': store.savedTrips(session.userId)});
     }
 
     if (method == 'POST' && _matches(path, ['saved'])) {
+      final session = _requireSession(request, store);
       final body = await _body(request);
+      body['userId'] = session.userId;
       return _json(
         request,
         {'item': store.createSavedItem(body)},
@@ -150,7 +170,8 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     }
 
     if (method == 'DELETE' && path.length == 2 && path.first == 'saved') {
-      final deleted = store.deleteSavedItem(path[1]);
+      final session = _requireSession(request, store);
+      final deleted = store.deleteSavedItem(path[1], session.userId);
       if (!deleted) {
         return _notFound(request, 'Saved item not found');
       }
@@ -158,6 +179,7 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     }
 
     if (method == 'POST' && _matches(path, ['feedback'])) {
+      final session = _requireSession(request, store);
       final body = await _body(request);
       final description = body['description']?.toString().trim() ?? '';
       if (description.isEmpty) {
@@ -167,6 +189,7 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       body['description'] = description;
       body['category'] =
           category == null || category.isEmpty ? 'general' : category;
+      body['userId'] = session.userId;
       return _json(
         request,
         {'item': store.createFeedback(body)},
@@ -175,6 +198,12 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
     }
 
     return _notFound(request, 'Route not found');
+  } on UnauthorizedException catch (error) {
+    return _json(
+      request,
+      {'error': error.message},
+      status: HttpStatus.unauthorized,
+    );
   } on NotFoundException catch (error) {
     return _notFound(request, error.message);
   } on FormatException catch (error) {
@@ -196,9 +225,10 @@ Future<void> _handleItinerary(
   HttpRequest request,
   List<String> path,
   SqliteStore store,
+  AuthSession session,
 ) async {
   final trip = store.itinerary(path[1]);
-  if (trip == null) {
+  if (trip == null || trip['userId'] != session.userId) {
     return _notFound(request, 'Itinerary not found');
   }
 
@@ -265,6 +295,22 @@ class NotFoundException implements Exception {
   const NotFoundException(this.message);
 
   final String message;
+}
+
+class UnauthorizedException implements Exception {
+  const UnauthorizedException(this.message);
+
+  final String message;
+}
+
+class AuthSession {
+  const AuthSession({
+    required this.userId,
+    required this.expiresAt,
+  });
+
+  final String userId;
+  final DateTime expiresAt;
 }
 
 class SqliteStore {
@@ -529,11 +575,7 @@ class SqliteStore {
         now,
         user['id'],
       ]);
-      return {
-        'registered': false,
-        'token': 'dev-token-${user['id']}',
-        'user': user
-      };
+      return {'registered': false, 'user': user};
     }
 
     final user = {
@@ -553,11 +595,7 @@ class SqliteStore {
         user['last_login_at'],
       ],
     );
-    return {
-      'registered': true,
-      'token': 'dev-token-${user['id']}',
-      'user': user
-    };
+    return {'registered': true, 'user': user};
   }
 
   Map<String, Object?>? userById(String id) => _first(
@@ -1068,10 +1106,20 @@ class SqliteStore {
     return item;
   }
 
-  bool deleteSavedItem(String id) {
-    final before = _count('saved_trips');
-    _db.execute('DELETE FROM saved_trips WHERE id = ?', [id]);
-    return _count('saved_trips') < before;
+  bool deleteSavedItem(String id, String userId) {
+    final result = _db.select(
+      'SELECT COUNT(*) AS count FROM saved_trips WHERE id = ? AND user_id = ?',
+      [id, userId],
+    );
+    final exists = (result.first['count'] as int) > 0;
+    if (!exists) {
+      return false;
+    }
+    _db.execute(
+      'DELETE FROM saved_trips WHERE id = ? AND user_id = ?',
+      [id, userId],
+    );
+    return true;
   }
 
   Map<String, Object?> createFeedback(Map<String, Object?> body) {
@@ -2138,9 +2186,24 @@ Map<String, Object?> _row(Row row) {
 }
 
 Future<Map<String, Object?>> _body(HttpRequest request) async {
-  final raw = await utf8.decoder.bind(request).join();
+  if (request.headers.contentLength > _maxBodyBytes) {
+    throw const FormatException('Request body is too large.');
+  }
+  final bytes = <int>[];
+  var totalBytes = 0;
+  await for (final chunk in request) {
+    totalBytes += chunk.length;
+    if (totalBytes > _maxBodyBytes) {
+      throw const FormatException('Request body is too large.');
+    }
+    bytes.addAll(chunk);
+  }
+  final raw = utf8.decode(bytes);
   if (raw.trim().isEmpty) {
     return {};
+  }
+  if (request.headers.contentType?.mimeType != ContentType.json.mimeType) {
+    throw const FormatException('Content-Type must be application/json.');
   }
   final decoded = jsonDecode(raw);
   if (decoded is Map) {
@@ -2170,12 +2233,39 @@ Future<void> _badRequest(HttpRequest request, String message) {
   return _json(request, {'error': message}, status: HttpStatus.badRequest);
 }
 
-void _applyCors(HttpResponse response) {
+void _applyCors(HttpRequest request) {
+  final response = request.response;
+  final origin = request.headers.value('origin');
+  if (origin != null && _isAllowedOrigin(origin)) {
+    response.headers
+      ..set('Access-Control-Allow-Origin', origin)
+      ..set('Vary', 'Origin');
+  }
   response.headers
-    ..set('Access-Control-Allow-Origin', '*')
     ..set('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
     ..set(
-        'Access-Control-Allow-Headers', 'Content-Type,Authorization,x-user-id');
+      'Access-Control-Allow-Headers',
+      'Content-Type,Authorization',
+    )
+    ..set('Access-Control-Max-Age', '600');
+}
+
+bool _isAllowedOrigin(String origin) {
+  final configured = (Platform.environment['WAYFARE_ALLOWED_ORIGINS'] ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .where((entry) => entry.isNotEmpty)
+      .toSet();
+  if (configured.isNotEmpty) {
+    return configured.contains(origin);
+  }
+  final uri = Uri.tryParse(origin);
+  if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return false;
+  }
+  return uri.host == 'localhost' ||
+      uri.host == '127.0.0.1' ||
+      uri.host == '::1';
 }
 
 bool _matches(List<String> path, List<String> target) {
@@ -2191,7 +2281,128 @@ bool _matches(List<String> path, List<String> target) {
 }
 
 String _id(String prefix) {
-  return '$prefix-${DateTime.now().microsecondsSinceEpoch}';
+  return '$prefix-${_randomUrlSafe(12)}';
+}
+
+const _maxBodyBytes = 64 * 1024;
+const _localDevelopmentSecret = 'wayfare-local-development-secret-change-me';
+
+String _randomUrlSafe(int byteCount) {
+  final bytes = List<int>.generate(
+    byteCount,
+    (_) => _secureRandom.nextInt(256),
+  );
+  return _base64Url(bytes);
+}
+
+String _base64Url(List<int> bytes) {
+  return base64Url.encode(bytes).replaceAll('=', '');
+}
+
+String _databaseLabel(String path) {
+  return File(path).uri.pathSegments.isEmpty
+      ? 'wayfare.sqlite'
+      : File(path).uri.pathSegments.last;
+}
+
+String _authMode() {
+  return _authSecretIsConfigured() ? 'configured' : 'development';
+}
+
+bool _authSecretIsConfigured() {
+  return (Platform.environment['WAYFARE_AUTH_SECRET'] ?? '').trim().isNotEmpty;
+}
+
+String _authSecret() {
+  final configured = Platform.environment['WAYFARE_AUTH_SECRET']?.trim();
+  if (configured != null && configured.isNotEmpty) {
+    return configured;
+  }
+  return _localDevelopmentSecret;
+}
+
+Duration _sessionDuration() {
+  final raw = Platform.environment['WAYFARE_SESSION_DAYS'];
+  final parsed = int.tryParse(raw ?? '');
+  final days = parsed == null ? 7 : parsed.clamp(1, 30);
+  return Duration(days: days);
+}
+
+Map<String, Object?> _issueSession(String userId) {
+  final expiresAt = DateTime.now().toUtc().add(_sessionDuration());
+  final payload = _base64Url(utf8.encode(jsonEncode({
+    'sub': userId,
+    'exp': expiresAt.millisecondsSinceEpoch,
+  })));
+  return {
+    'token': '$payload.${_sessionSignature(payload)}',
+    'expiresAt': expiresAt.toIso8601String(),
+  };
+}
+
+AuthSession _requireSession(HttpRequest request, SqliteStore store) {
+  final header = request.headers.value(HttpHeaders.authorizationHeader) ?? '';
+  final tokenPrefix = 'bearer ';
+  if (!header.toLowerCase().startsWith(tokenPrefix)) {
+    throw const UnauthorizedException('Bearer token is required');
+  }
+  final token = header.substring(tokenPrefix.length).trim();
+  final parts = token.split('.');
+  if (parts.length != 2 || parts.first.isEmpty || parts.last.isEmpty) {
+    throw const UnauthorizedException('Bearer token is invalid');
+  }
+  final expectedSignature = _sessionSignature(parts.first);
+  if (!_constantTimeEquals(parts.last, expectedSignature)) {
+    throw const UnauthorizedException('Bearer token is invalid');
+  }
+
+  final payload = _decodeSessionPayload(parts.first);
+  final userId = payload['sub']?.toString() ?? '';
+  final exp = payload['exp'];
+  if (userId.isEmpty || exp is! int) {
+    throw const UnauthorizedException('Bearer token is invalid');
+  }
+  final expiresAt = DateTime.fromMillisecondsSinceEpoch(exp, isUtc: true);
+  if (!DateTime.now().toUtc().isBefore(expiresAt)) {
+    throw const UnauthorizedException('Bearer token has expired');
+  }
+  if (store.userById(userId) == null) {
+    throw const UnauthorizedException('Bearer token user is invalid');
+  }
+  return AuthSession(userId: userId, expiresAt: expiresAt);
+}
+
+Map<String, Object?> _decodeSessionPayload(String payload) {
+  try {
+    final normalized = base64Url.normalize(payload);
+    final decoded = jsonDecode(utf8.decode(base64Url.decode(normalized)));
+    if (decoded is Map) {
+      return decoded.map<String, Object?>(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+    }
+  } catch (_) {
+    // Fall through to the uniform invalid-token error below.
+  }
+  throw const UnauthorizedException('Bearer token is invalid');
+}
+
+String _sessionSignature(String payload) {
+  final hmac = Hmac(sha256, utf8.encode(_authSecret()));
+  return _base64Url(hmac.convert(utf8.encode(payload)).bytes);
+}
+
+bool _constantTimeEquals(String left, String right) {
+  final leftUnits = left.codeUnits;
+  final rightUnits = right.codeUnits;
+  var diff = leftUnits.length ^ rightUnits.length;
+  final length = math.max(leftUnits.length, rightUnits.length);
+  for (var index = 0; index < length; index++) {
+    final leftCode = index < leftUnits.length ? leftUnits[index] : 0;
+    final rightCode = index < rightUnits.length ? rightUnits[index] : 0;
+    diff |= leftCode ^ rightCode;
+  }
+  return diff == 0;
 }
 
 String? _identifierValidationError(String? identifier) {

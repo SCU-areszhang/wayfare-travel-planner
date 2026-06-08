@@ -51,21 +51,51 @@ void main() {
         lessThanOrEqualTo(50));
   });
 
+  test('user scoped endpoints require bearer tokens', () async {
+    final me = await server.get('/me');
+    expect(me.statusCode, HttpStatus.unauthorized);
+    expect(me.json['error'], contains('Bearer token'));
+
+    final itineraries = await server.get('/itineraries');
+    expect(itineraries.statusCode, HttpStatus.unauthorized);
+
+    final tampered = await server.get('/me', token: 'not-a-real-token');
+    expect(tampered.statusCode, HttpStatus.unauthorized);
+  });
+
+  test('login issues a bearer token that authorizes /me', () async {
+    final token = await server.login();
+
+    expect(token, isNotEmpty);
+
+    final me = await server.get('/me', token: token);
+
+    expect(me.statusCode, HttpStatus.ok);
+    final user = me.json['user'] as Map<String, Object?>;
+    expect(user['identifier'], 'demo@wayfare.local');
+  });
+
   test('feedback requires descriptions and defaults blank category', () async {
-    final missing = await server.post('/feedback', {
-      'userId': 'user-dev-1',
-      'category': '',
-      'description': '   ',
-    });
+    final token = await server.login();
+
+    final missing = await server.post(
+        '/feedback',
+        {
+          'category': '',
+          'description': '   ',
+        },
+        token: token);
 
     expect(missing.statusCode, HttpStatus.badRequest);
     expect(missing.json['error'], 'description is required');
 
-    final created = await server.post('/feedback', {
-      'userId': 'user-dev-1',
-      'category': '',
-      'description': '  The saved trips filter is useful.  ',
-    });
+    final created = await server.post(
+        '/feedback',
+        {
+          'category': '',
+          'description': '  The saved trips filter is useful.  ',
+        },
+        token: token);
 
     expect(created.statusCode, HttpStatus.created);
     final item = created.json['item'] as Map<String, Object?>;
@@ -74,10 +104,14 @@ void main() {
   });
 
   test('missing itinerary day or item returns 404', () async {
-    final trip = await server.post('/itineraries', {
-      'title': 'Integration Trip',
-      'destination': 'Hangzhou',
-    });
+    final token = await server.login();
+    final trip = await server.post(
+        '/itineraries',
+        {
+          'title': 'Integration Trip',
+          'destination': 'Hangzhou',
+        },
+        token: token);
     final tripId =
         ((trip.json['item'] as Map<String, Object?>)['id'] as String);
 
@@ -88,20 +122,25 @@ void main() {
         'place': 'West Lake',
         'activity': 'Walk',
       },
+      token: token,
     );
 
     expect(missingDay.statusCode, HttpStatus.notFound);
     expect(missingDay.json['error'], 'Itinerary day not found');
 
-    final day = await server.post('/itineraries/$tripId/days', {
-      'title': 'Day 1',
-      'date': '2026-06-08',
-      'city': 'Hangzhou',
-    });
+    final day = await server.post(
+        '/itineraries/$tripId/days',
+        {
+          'title': 'Day 1',
+          'date': '2026-06-08',
+          'city': 'Hangzhou',
+        },
+        token: token);
     final dayId = ((day.json['item'] as Map<String, Object?>)['id'] as String);
 
     final missingItem = await server.delete(
       '/itineraries/$tripId/days/$dayId/items/missing-item',
+      token: token,
     );
 
     expect(missingItem.statusCode, HttpStatus.notFound);
@@ -137,6 +176,7 @@ class _ServerHarness {
       workingDirectory: Directory.current.path,
       environment: {
         'WAYFARE_DB_PATH': '${tempDir.path}/wayfare.sqlite',
+        'WAYFARE_AUTH_SECRET': 'test-secret-for-signed-session-tokens',
       },
     );
 
@@ -164,16 +204,28 @@ class _ServerHarness {
     return harness;
   }
 
-  Future<_JsonResponse> get(String path) {
-    return _request('GET', path);
+  Future<String> login() async {
+    final response = await post('/auth/login', {
+      'identifier': 'demo@wayfare.local',
+    });
+    expect(response.statusCode, HttpStatus.ok);
+    return response.json['token'] as String;
   }
 
-  Future<_JsonResponse> post(String path, Map<String, Object?> body) {
-    return _request('POST', path, body: body);
+  Future<_JsonResponse> get(String path, {String? token}) {
+    return _request('GET', path, token: token);
   }
 
-  Future<_JsonResponse> delete(String path) {
-    return _request('DELETE', path);
+  Future<_JsonResponse> post(
+    String path,
+    Map<String, Object?> body, {
+    String? token,
+  }) {
+    return _request('POST', path, body: body, token: token);
+  }
+
+  Future<_JsonResponse> delete(String path, {String? token}) {
+    return _request('DELETE', path, token: token);
   }
 
   Future<void> close() async {
@@ -224,6 +276,7 @@ class _ServerHarness {
     String method,
     String path, {
     Map<String, Object?>? body,
+    String? token,
   }) async {
     final client = HttpClient();
     try {
@@ -232,6 +285,9 @@ class _ServerHarness {
         Uri.parse('http://127.0.0.1:$port$path'),
       );
       request.headers.contentType = ContentType.json;
+      if (token != null) {
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      }
       if (body != null) {
         request.write(jsonEncode(body));
       }

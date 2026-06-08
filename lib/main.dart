@@ -30,7 +30,7 @@ String _nextLocalId(String prefix) {
 }
 
 void main() {
-  runApp(const WayfareApp());
+  runApp(WayfareApp());
 }
 
 enum AppTab { home, explore, itinerary, saved, profile }
@@ -40,11 +40,15 @@ class AppUser {
     required this.id,
     required this.identifier,
     required this.displayName,
+    this.sessionToken,
+    this.sessionExpiresAt,
   });
 
   final String id;
   final String identifier;
   final String displayName;
+  final String? sessionToken;
+  final DateTime? sessionExpiresAt;
 
   String get initials {
     final source = displayName.trim().isEmpty ? identifier : displayName;
@@ -56,16 +60,33 @@ class LocalAuthRepository {
   static const _sessionIdKey = 'wayfare.session.user_id';
   static const _sessionIdentifierKey = 'wayfare.session.identifier';
   static const _sessionNameKey = 'wayfare.session.display_name';
+  static const _sessionTokenKey = 'wayfare.session.token';
+  static const _sessionExpiresAtKey = 'wayfare.session.expires_at';
 
   Future<AppUser?> currentUser() async {
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getString(_sessionIdKey);
     final identifier = prefs.getString(_sessionIdentifierKey);
     final displayName = prefs.getString(_sessionNameKey);
-    if (id == null || identifier == null || displayName == null) {
+    final token = prefs.getString(_sessionTokenKey);
+    final expiresAt = DateTime.tryParse(
+      prefs.getString(_sessionExpiresAtKey) ?? '',
+    );
+    if (id == null ||
+        identifier == null ||
+        displayName == null ||
+        token == null ||
+        expiresAt == null ||
+        !DateTime.now().toUtc().isBefore(expiresAt.toUtc())) {
       return null;
     }
-    return AppUser(id: id, identifier: identifier, displayName: displayName);
+    return AppUser(
+      id: id,
+      identifier: identifier,
+      displayName: displayName,
+      sessionToken: token,
+      sessionExpiresAt: expiresAt,
+    );
   }
 
   Future<void> saveSession(AppUser user) async {
@@ -78,12 +99,23 @@ class LocalAuthRepository {
     await prefs.remove(_sessionIdKey);
     await prefs.remove(_sessionIdentifierKey);
     await prefs.remove(_sessionNameKey);
+    await prefs.remove(_sessionTokenKey);
+    await prefs.remove(_sessionExpiresAtKey);
   }
 
   Future<void> _saveSession(SharedPreferences prefs, AppUser user) async {
     await prefs.setString(_sessionIdKey, user.id);
     await prefs.setString(_sessionIdentifierKey, user.identifier);
     await prefs.setString(_sessionNameKey, user.displayName);
+    final token = user.sessionToken;
+    final expiresAt = user.sessionExpiresAt;
+    if (token != null && expiresAt != null) {
+      await prefs.setString(_sessionTokenKey, token);
+      await prefs.setString(
+        _sessionExpiresAtKey,
+        expiresAt.toUtc().toIso8601String(),
+      );
+    }
   }
 
   static String _displayNameFromIdentifier(String identifier) {
@@ -405,13 +437,18 @@ class BackendLoginResult {
   const BackendLoginResult({
     required this.user,
     required this.registered,
+    required this.sessionToken,
+    required this.sessionExpiresAt,
   });
 
   final AppUser user;
   final bool registered;
+  final String sessionToken;
+  final DateTime sessionExpiresAt;
 }
 
 abstract interface class WayfareBackend {
+  void setSessionToken(String? token);
   Future<BackendLoginResult> loginOrRegister(String identifier);
   Future<TravelDataRepository> loadTravelData(String userId);
   Future<List<TravelSearchResult>> searchPlaces(String query);
@@ -459,7 +496,7 @@ abstract interface class WayfareBackend {
 }
 
 class WayfareApiClient implements WayfareBackend {
-  const WayfareApiClient({
+  WayfareApiClient({
     this.baseUrl = const String.fromEnvironment(
       'WAYFARE_API_BASE',
       defaultValue: 'http://127.0.0.1:8080',
@@ -467,16 +504,34 @@ class WayfareApiClient implements WayfareBackend {
   });
 
   final String baseUrl;
+  String? _sessionToken;
+
+  @override
+  void setSessionToken(String? token) {
+    _sessionToken = token?.trim().isEmpty == true ? null : token;
+  }
 
   @override
   Future<BackendLoginResult> loginOrRegister(String identifier) async {
     final body = await _post('/auth/login', {
       'identifier': identifier,
     });
-    final user = _userFromJson(_asMap(body['user']));
+    final sessionToken = body['token']?.toString() ?? '';
+    final sessionExpiresAt = DateTime.tryParse(
+          body['expiresAt']?.toString() ?? '',
+        ) ??
+        DateTime.now().toUtc();
+    setSessionToken(sessionToken);
+    final user = _userFromJson(
+      _asMap(body['user']),
+      sessionToken: sessionToken,
+      sessionExpiresAt: sessionExpiresAt,
+    );
     return BackendLoginResult(
       user: user,
       registered: body['registered'] == true,
+      sessionToken: sessionToken,
+      sessionExpiresAt: sessionExpiresAt,
     );
   }
 
@@ -484,15 +539,14 @@ class WayfareApiClient implements WayfareBackend {
   Future<TravelDataRepository> loadTravelData(String userId) async {
     final destinationsBody = await _get('/destinations');
     final placesBody = await _get('/map/places');
-    final savedBody = await _get('/saved', query: {'userId': userId});
-    var itineraryBody = await _get('/itineraries', query: {'userId': userId});
+    final savedBody = await _get('/saved');
+    var itineraryBody = await _get('/itineraries');
 
     var itineraries = _listOfMaps(itineraryBody['items']);
     if (itineraries.isEmpty) {
       final now = DateTime.now();
       final isoDate = _isoDate(now);
       final created = await _post('/itineraries', {
-        'userId': userId,
         'title': 'My Travel Plan',
         'destination': 'Current Trip',
         'startDate': isoDate,
@@ -623,7 +677,6 @@ class WayfareApiClient implements WayfareBackend {
   Future<SavedTrip> saveDestination(
       String userId, Destination destination) async {
     final body = await _post('/saved', {
-      'userId': userId,
       'type': 'destination',
       'refId': destination.id,
       'folder': destination.theme,
@@ -644,7 +697,6 @@ class WayfareApiClient implements WayfareBackend {
     required String description,
   }) async {
     await _post('/feedback', {
-      'userId': userId,
       'category': category,
       'description': description,
     });
@@ -654,14 +706,14 @@ class WayfareApiClient implements WayfareBackend {
     String path, {
     Map<String, String>? query,
   }) async {
-    return _decode(await http.get(_uri(path, query)));
+    return _decode(await http.get(_uri(path, query), headers: _headers()));
   }
 
   Future<Map<String, Object?>> _post(String path, Object body) async {
     return _decode(
       await http.post(
         _uri(path),
-        headers: const {'Content-Type': 'application/json'},
+        headers: _headers(json: true),
         body: jsonEncode(body),
       ),
     );
@@ -671,18 +723,30 @@ class WayfareApiClient implements WayfareBackend {
     return _decode(
       await http.patch(
         _uri(path),
-        headers: const {'Content-Type': 'application/json'},
+        headers: _headers(json: true),
         body: jsonEncode(body),
       ),
     );
   }
 
   Future<Map<String, Object?>> _delete(String path) async {
-    return _decode(await http.delete(_uri(path)));
+    return _decode(await http.delete(_uri(path), headers: _headers()));
   }
 
   Uri _uri(String path, [Map<String, String>? query]) {
     return Uri.parse('$baseUrl$path').replace(queryParameters: query);
+  }
+
+  Map<String, String> _headers({bool json = false}) {
+    final headers = <String, String>{};
+    if (json) {
+      headers['Content-Type'] = 'application/json';
+    }
+    final token = _sessionToken;
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
   }
 
   Map<String, Object?> _decode(http.Response response) {
@@ -708,7 +772,11 @@ class BackendException implements Exception {
   String toString() => message;
 }
 
-AppUser _userFromJson(Map<String, Object?> json) {
+AppUser _userFromJson(
+  Map<String, Object?> json, {
+  String? sessionToken,
+  DateTime? sessionExpiresAt,
+}) {
   final identifier = json['identifier']?.toString() ?? '';
   final displayName = json['displayName']?.toString() ??
       json['display_name']?.toString() ??
@@ -717,6 +785,8 @@ AppUser _userFromJson(Map<String, Object?> json) {
     id: json['id']?.toString() ?? _nextLocalId('user'),
     identifier: identifier,
     displayName: displayName,
+    sessionToken: sessionToken,
+    sessionExpiresAt: sessionExpiresAt,
   );
 }
 
@@ -894,10 +964,10 @@ IconData _iconForCategory(String category) {
 }
 
 class WayfareApp extends StatefulWidget {
-  const WayfareApp({
-    this.backend = const WayfareApiClient(),
+  WayfareApp({
+    WayfareBackend? backend,
     super.key,
-  });
+  }) : backend = backend ?? WayfareApiClient();
 
   final WayfareBackend backend;
 
@@ -931,10 +1001,12 @@ class _WayfareAppState extends State<WayfareApp> {
       _user = user;
       _authLoading = false;
     });
+    widget.backend.setSessionToken(user?.sessionToken);
   }
 
   Future<bool> _login(String identifier) async {
     final result = await widget.backend.loginOrRegister(identifier);
+    widget.backend.setSessionToken(result.sessionToken);
     await _authRepository.saveSession(result.user);
     if (!mounted) {
       return result.registered;
@@ -944,6 +1016,7 @@ class _WayfareAppState extends State<WayfareApp> {
   }
 
   Future<void> _logout() async {
+    widget.backend.setSessionToken(null);
     await _authRepository.logout();
     if (!mounted) {
       return;
@@ -4985,7 +5058,8 @@ class _SavedScreenState extends State<_SavedScreen> {
           const _EmptyStateCard(
             icon: Icons.search_off_outlined,
             title: 'No matching saved trips',
-            message: 'Clear search text or folder chips to see all saved trips.',
+            message:
+                'Clear search text or folder chips to see all saved trips.',
           ),
           const SizedBox(height: 16),
         ],

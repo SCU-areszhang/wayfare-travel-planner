@@ -22,7 +22,8 @@ This project is a Flutter + Dart implementation of the travel planning app descr
 
 The app starts at a login screen unless a local session exists. Phone/email login calls
 `POST /auth/login`: if the identifier exists, the user is signed in; if not, a small-team user
-record is created in SQLite and the user is signed in.
+record is created in SQLite and the user is signed in. The backend returns a signed Bearer
+session token. User-owned itinerary, saved-trip, and feedback routes require that token.
 
 ## Backend Scaffold
 
@@ -41,6 +42,19 @@ Default health check: `http://127.0.0.1:8080/health`
 SQLite database path: `backend/data/wayfare.sqlite`
 
 Search endpoint: `GET /search?q=橘子洲`
+
+Recommended local environment:
+
+```powershell
+$env:WAYFARE_AUTH_SECRET='replace-with-a-long-random-local-secret'
+$env:WAYFARE_ALLOWED_ORIGINS='http://127.0.0.1:8092,http://localhost:8092'
+$env:WAYFARE_DB_PATH='data/wayfare.sqlite'
+dart run bin/server.dart
+```
+
+For any shared or deployed environment, set `WAYFARE_AUTH_SECRET` and a narrow
+`WAYFARE_ALLOWED_ORIGINS` value. Without `WAYFARE_AUTH_SECRET`, the backend uses
+a local development signing secret and reports `auth: development` from `/health`.
 
 The current seed data includes 4A+ scenic spots and urban-core attractions for first-tier and 2025 new first-tier-or-above cities. Full national 4A+ coverage can be imported by extending `scenic_spots` with an official CSV/source list.
 
@@ -82,6 +96,12 @@ In another terminal:
 $env:Path='C:\Program Files\Flutter\bin;'+$env:Path
 flutter build web --release --pwa-strategy=none
 python -m http.server 8092 --bind 127.0.0.1 --directory build/web
+```
+
+To point the web build at another backend:
+
+```powershell
+flutter build web --release --pwa-strategy=none --dart-define=WAYFARE_API_BASE=https://api.example.com
 ```
 
 For Android builds, make sure Android Studio / Android SDK is installed and Flutter can see it:

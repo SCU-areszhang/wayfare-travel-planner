@@ -298,6 +298,32 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Scoped Flutter analysis away from backend/vendor packages, added `cupertino_icons`, migrated itinerary reordering to `onReorderItem`, and pinned touch feedback to `InkRipple` to avoid Flutter 3.44 test shader incompatibility.
 - Acceptance link: `flutter analyze`, `flutter test`, and web release build all pass on the installed toolchain.
 
+## Commercialization Iteration
+
+### Subagent Audit Results
+
+- A05/A07 Backend/Security: identified prototype `dev-token-*`, default user fallback, weak user data isolation, predictable IDs, permissive CORS, request body limits, SQLite production gaps, and missing auth regression tests as the highest-risk commercial blockers.
+- A03/A04 Flutter/UI: identified the monolithic `lib/main.dart`, mutable app state, weak API contract parsing, session/privacy copy, duplicate search state, map reliability, Web input accessibility, and low widget coverage as the main frontend blockers.
+- A06/A07 QA/Release: identified dirty platform files, ignored lockfiles, missing CI, release signing, platform configuration drift, weak test coverage, and local-only deployment docs as release blockers.
+
+### A05/A07
+
+- Files: `backend/bin/server.dart`, `backend/pubspec.yaml`, `backend/test/server_test.dart`, `backend/README.md`
+- Change: Replaced prototype `dev-token-*` with HMAC-signed Bearer session tokens, added token expiry validation, removed default/query/body user id trust for user-owned routes, scoped itinerary/saved/feedback operations to the authenticated user, added strong random IDs, request body size and JSON content-type checks, loopback/default CORS allow-list behavior, configurable bind host/auth/session settings, and backend tests for 401 and authorized `/me`.
+- Acceptance link: User-owned backend data is no longer selected by arbitrary client-provided `userId` values.
+
+### A03
+
+- Files: `lib/main.dart`, `test/widget_test.dart`
+- Change: Stored session token and expiry in `AppUser`/`LocalAuthRepository`, injected Bearer token into `WayfareApiClient` requests, removed userId query/body usage from user-owned API calls, and updated widget fake backend for the new auth contract.
+- Acceptance link: Flutter app uses server-issued token for authenticated routes instead of relying on client-selected user ids.
+
+### A07
+
+- Files: `.gitignore`, `.gitattributes`, `.github/workflows/ci.yml`, `README.md`, `backend/README.md`, `pubspec.lock`, `backend/pubspec.lock`
+- Change: Allowed lockfiles to be tracked, added line-ending policy, added GitHub Actions CI for format/analyze/test/web build/backend tests, and documented production-oriented environment variables.
+- Acceptance link: Release checks are repeatable outside the local machine.
+
 ## Verification Results
 
 Runnable:
@@ -366,19 +392,23 @@ backend: No issues found.
 
 ```text
 dart test
-backend: 4 tests passed.
+backend: 6 tests passed.
 ```
 
 ```text
 Browser smoke test
 http://127.0.0.1:8092 loaded build/web.
 Temporary backend on http://127.0.0.1:8080 passed /health.
-Login with demo@wayfare.local reached Home with Find Places and System CityWalks visible.
 Browser error/warning logs: none.
+Browser automation could not type into the Flutter Web platform text field because the virtual clipboard was unavailable.
+Backend curl smoke proved login returned a signed token, unauthenticated /me returned 401, and authenticated /me returned demo@wayfare.local.
 ```
 
 Residual risk:
 
 - Android device builds still need Android SDK cmdline-tools. iOS/macOS builds still need full Xcode and CocoaPods.
+- Android release signing and appbundle verification remain incomplete.
+- Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, monitoring, rate limiting, and a revocable session store or identity provider.
+- Frontend search concurrency, map point confirmation UX, broader widget/E2E tests, and API parsing strictness remain future commercial hardening work.
 - PDF and DOCX layout fidelity could not be visually rendered because Poppler and LibreOffice are missing.
-- The repository has no commits yet and many pre-existing untracked project files, so staging must remain file-explicit.
+- The nested repository still has pre-existing unstaged Android/Web/Windows platform changes that were intentionally not touched in this iteration.

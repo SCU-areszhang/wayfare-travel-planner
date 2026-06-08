@@ -466,6 +466,14 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Extended the local demo startup tool to read AMap credentials from the external key file, map `Wayfare_WebSvc` to the backend Web Service key, map the first `Wayfare_WebJS` token to the Web JS key, accept `Security_code` or CLI/environment overrides, and optionally rebuild Flutter Web with `--rebuild-web`.
 - Acceptance link: Future local restarts can reproduce the AMap-enabled demo without committing keys or hand-writing shell extraction commands.
 
+## Local Demo Handoff Runbook Iteration
+
+### A00/A01/A06/A07
+
+- Files: `docs/local_demo_runbook.md`, `README.md`, `AGENTS.md`, `docs/goal_execution.md`
+- Change: Added a concise local demo runbook covering AMap startup, smoke verification, browser check, regression commands, secret handling, and current known limits.
+- Acceptance link: A reviewer can reproduce the basic local demo from one handoff document without reading the full execution log.
+
 ## Verification Results
 
 Runnable:

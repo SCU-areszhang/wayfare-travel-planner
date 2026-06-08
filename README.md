@@ -146,6 +146,9 @@ dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092
 The smoke check covers backend health, login, authenticated `/me`, scenic search,
 and the served Flutter Web shell.
 
+For the complete local demo handoff checklist, see
+`docs/local_demo_runbook.md`.
+
 To point the web build at another backend:
 
 ```powershell

@@ -189,6 +189,12 @@ Local demo smoke:
 dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092
 ```
 
+Local demo handoff checklist:
+
+```bash
+docs/local_demo_runbook.md
+```
+
 Release readiness:
 
 ```bash

@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace "com.idm.travelplanner"
-    compileSdk 35
+    compileSdk flutter.compileSdkVersion
 
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId "com.idm.travelplanner"
         minSdkVersion flutter.minSdkVersion
-        targetSdk 35
+        targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode
         versionName flutter.versionName
     }
@@ -20,4 +20,9 @@ android {
 
 flutter {
     source "../.."
+}
+
+dependencies {
+    implementation 'com.amap.api:3dmap:8.1.0'
+    implementation 'com.amap.api:location:6.4.7'
 }

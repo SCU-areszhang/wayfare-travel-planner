@@ -1,8 +1,25 @@
 import 'dart:math' as math;
+import 'dart:convert';
 
+import 'package:amap_flutter_base/amap_flutter_base.dart' as amap_base;
+import 'package:amap_flutter_map/amap_flutter_map.dart' as amap_map;
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart' hide Path;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'amap_canvas_stub.dart' if (dart.library.html) 'amap_canvas_web.dart';
+import 'login_identifier_field_stub.dart'
+    if (dart.library.html) 'login_identifier_field_web.dart';
+import 'search_query_field_stub.dart'
+    if (dart.library.html) 'search_query_field_web.dart';
+
+const _amapAndroidKey = String.fromEnvironment('AMAP_ANDROID_KEY');
+const _amapIosKey = String.fromEnvironment('AMAP_IOS_KEY');
+const _amapJsKey = String.fromEnvironment('AMAP_JS_KEY');
+const _amapJsSecurityCode = String.fromEnvironment('AMAP_JS_SECURITY_CODE');
 
 int _localIdCounter = 0;
 
@@ -16,6 +33,68 @@ void main() {
 }
 
 enum AppTab { home, explore, itinerary, saved, profile }
+
+class AppUser {
+  const AppUser({
+    required this.id,
+    required this.identifier,
+    required this.displayName,
+  });
+
+  final String id;
+  final String identifier;
+  final String displayName;
+
+  String get initials {
+    final source = displayName.trim().isEmpty ? identifier : displayName;
+    return source.characters.take(1).toString().toUpperCase();
+  }
+}
+
+class LocalAuthRepository {
+  static const _sessionIdKey = 'wayfare.session.user_id';
+  static const _sessionIdentifierKey = 'wayfare.session.identifier';
+  static const _sessionNameKey = 'wayfare.session.display_name';
+
+  Future<AppUser?> currentUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final id = prefs.getString(_sessionIdKey);
+    final identifier = prefs.getString(_sessionIdentifierKey);
+    final displayName = prefs.getString(_sessionNameKey);
+    if (id == null || identifier == null || displayName == null) {
+      return null;
+    }
+    return AppUser(id: id, identifier: identifier, displayName: displayName);
+  }
+
+  Future<void> saveSession(AppUser user) async {
+    final prefs = await SharedPreferences.getInstance();
+    await _saveSession(prefs, user);
+  }
+
+  Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_sessionIdKey);
+    await prefs.remove(_sessionIdentifierKey);
+    await prefs.remove(_sessionNameKey);
+  }
+
+  Future<void> _saveSession(SharedPreferences prefs, AppUser user) async {
+    await prefs.setString(_sessionIdKey, user.id);
+    await prefs.setString(_sessionIdentifierKey, user.identifier);
+    await prefs.setString(_sessionNameKey, user.displayName);
+  }
+
+  static String _displayNameFromIdentifier(String identifier) {
+    if (identifier.contains('@')) {
+      return identifier.split('@').first;
+    }
+    if (identifier.length >= 4) {
+      return 'Traveler ${identifier.substring(identifier.length - 4)}';
+    }
+    return 'Traveler';
+  }
+}
 
 enum ThemeSource {
   system('System Dynamic Color', Color(0xFF386A8B)),
@@ -33,6 +112,7 @@ enum ThemeSource {
 
 class Destination {
   const Destination({
+    required this.id,
     required this.name,
     required this.theme,
     required this.duration,
@@ -40,8 +120,10 @@ class Destination {
     required this.summary,
     required this.tone,
     required this.priority,
+    required this.point,
   });
 
+  final String id;
   final String name;
   final String theme;
   final String duration;
@@ -49,17 +131,20 @@ class Destination {
   final String summary;
   final Color tone;
   final bool priority;
+  final LatLng point;
 }
 
 class ItineraryDay {
   ItineraryDay({
+    String? id,
     required this.title,
     required this.date,
     required this.city,
     required this.reminder,
     required this.items,
-  });
+  }) : id = id ?? _nextLocalId('day');
 
+  final String id;
   String title;
   String date;
   String city;
@@ -75,6 +160,7 @@ class ItineraryItem {
     required this.activity,
     required this.note,
     required this.status,
+    this.point,
   }) : id = id ?? _nextLocalId('item');
 
   final String id;
@@ -83,10 +169,12 @@ class ItineraryItem {
   String activity;
   String note;
   String status;
+  LatLng? point;
 }
 
 class MapPlace {
   const MapPlace({
+    required this.id,
     required this.name,
     required this.category,
     required this.distance,
@@ -96,6 +184,7 @@ class MapPlace {
     required this.icon,
   });
 
+  final String id;
   final String name;
   final String category;
   final String distance;
@@ -105,8 +194,31 @@ class MapPlace {
   final IconData icon;
 }
 
+class TravelSearchResult {
+  const TravelSearchResult({
+    required this.id,
+    required this.name,
+    required this.subtitle,
+    required this.intro,
+    required this.level,
+    required this.sourceType,
+    required this.point,
+    this.imageUrl,
+  });
+
+  final String id;
+  final String name;
+  final String subtitle;
+  final String intro;
+  final String level;
+  final String sourceType;
+  final LatLng point;
+  final String? imageUrl;
+}
+
 class SavedTrip {
   const SavedTrip({
+    required this.id,
     required this.destination,
     required this.dateRange,
     required this.itemCount,
@@ -115,6 +227,7 @@ class SavedTrip {
     required this.upcoming,
   });
 
+  final String id;
   final String destination;
   final String dateRange;
   final String itemCount;
@@ -123,225 +236,669 @@ class SavedTrip {
   final bool upcoming;
 }
 
-class MockTravelRepository {
-  final destinations = const [
-    Destination(
-      name: 'Hangzhou Lakeside',
-      theme: 'Nature + Culture',
-      duration: '2 days',
-      reason: 'matches your nature preference',
-      summary:
-          'A calm weekend around West Lake, tea fields, evening streets, and easy walks.',
-      tone: Color(0xFF4E8A7E),
-      priority: true,
-    ),
-    Destination(
-      name: 'Shanghai City Break',
-      theme: 'City Break',
-      duration: '1-2 days',
-      reason: 'good for short trips',
-      summary:
-          'Museums, skyline viewpoints, food streets, and compact metro-friendly routes.',
-      tone: Color(0xFF4E6A96),
-      priority: true,
-    ),
-    Destination(
-      name: 'Suzhou Garden Trail',
-      theme: 'Culture',
-      duration: '2 days',
-      reason: 'saved by culture travelers',
-      summary:
-          'Classical gardens, canals, soft evening routes, and quiet photography spots.',
-      tone: Color(0xFF7A7D4E),
-      priority: false,
-    ),
-    Destination(
-      name: 'Chengdu Food Weekend',
-      theme: 'Food',
-      duration: '3 days',
-      reason: 'matches your foodie tag',
-      summary: 'Street snacks, teahouses, parks, and a relaxed itinerary pace.',
-      tone: Color(0xFFAA6046),
-      priority: false,
-    ),
-  ];
+class CityWalkStop {
+  const CityWalkStop({
+    required this.time,
+    required this.place,
+    required this.activity,
+    required this.note,
+    required this.point,
+  });
 
-  final itineraryDays = [
-    ItineraryDay(
-      title: 'Day 1',
-      date: 'May 24',
-      city: 'Hangzhou',
-      reminder: 'Light rain possible, keep outdoor stops flexible',
-      items: [
-        ItineraryItem(
-          time: '09:00',
-          place: 'West Lake',
-          activity: 'Walk the lakeside route',
-          note: 'Start near Broken Bridge and keep the morning gentle.',
-          status: 'Saved',
-        ),
-        ItineraryItem(
-          time: '12:30',
-          place: 'Hefang Street',
-          activity: 'Lunch and snack stops',
-          note: 'Try local noodles, then keep 30 minutes for souvenirs.',
-          status: 'Saved',
-        ),
-        ItineraryItem(
-          time: '16:00',
-          place: 'Longjing Village',
-          activity: 'Tea field visit',
-          note: 'Move here if rain stops; otherwise switch with museum.',
-          status: 'Unsaved changes',
-        ),
-      ],
-    ),
-    ItineraryDay(
-      title: 'Day 2',
-      date: 'May 25',
-      city: 'Hangzhou',
-      reminder: 'Reminder: review route before departure',
-      items: [
-        ItineraryItem(
-          time: '10:00',
-          place: 'China National Tea Museum',
-          activity: 'Indoor culture stop',
-          note: 'Good fallback for unstable weather.',
-          status: 'Saved',
-        ),
-        ItineraryItem(
-          time: '14:30',
-          place: 'Xixi Wetland',
-          activity: 'Nature walk',
-          note: 'Open map first to check attraction distribution.',
-          status: 'Saved',
-        ),
-      ],
-    ),
-  ];
+  final String time;
+  final String place;
+  final String activity;
+  final String note;
+  final LatLng point;
+}
 
-  final mapPlaces = const [
-    MapPlace(
-      name: 'West Lake',
-      category: 'Attraction',
-      distance: '1.2 km',
-      description: 'Scenic lakeside area for the first morning route.',
-      rating: '4.8 placeholder',
-      point: LatLng(30.2431, 120.1508),
-      icon: Icons.place_outlined,
-    ),
-    MapPlace(
-      name: 'Hefang Street',
-      category: 'Food',
-      distance: '2.0 km',
-      description: 'Dense snack street and short shopping stop.',
-      rating: '4.5 placeholder',
-      point: LatLng(30.2416, 120.1784),
-      icon: Icons.restaurant_outlined,
-    ),
-    MapPlace(
-      name: 'Longjing Village',
-      category: 'Nature',
-      distance: '7.8 km',
-      description: 'Tea fields, quiet paths, and photography viewpoints.',
-      rating: '4.7 placeholder',
-      point: LatLng(30.2207, 120.0912),
-      icon: Icons.park_outlined,
-    ),
-    MapPlace(
-      name: 'Metro Station',
-      category: 'Transport',
-      distance: '0.4 km',
-      description: 'Useful transfer point for the planned route.',
-      rating: 'Route context',
-      point: LatLng(30.2607, 120.1606),
-      icon: Icons.directions_transit_outlined,
-    ),
-    MapPlace(
-      name: 'Saved Cafe',
-      category: 'Saved Place',
-      distance: '1.7 km',
-      description: 'A manually saved place for a flexible rest break.',
-      rating: 'Saved',
-      point: LatLng(30.2524, 120.1422),
-      icon: Icons.bookmark_border,
-    ),
-  ];
+class CityWalkTemplate {
+  const CityWalkTemplate({
+    required this.id,
+    required this.title,
+    required this.city,
+    required this.summary,
+    required this.duration,
+    required this.stops,
+  });
 
-  final savedTrips = const [
-    SavedTrip(
-      destination: 'Hangzhou Lakeside',
-      dateRange: 'May 24 - May 25',
-      itemCount: '5 planned items',
-      lastUpdated: 'Updated today',
-      folder: 'Weekend',
-      upcoming: true,
-    ),
-    SavedTrip(
-      destination: 'Shanghai City Break',
-      dateRange: 'Jun 7 - Jun 8',
-      itemCount: '4 planned items',
-      lastUpdated: 'Updated yesterday',
-      folder: 'City Break',
-      upcoming: true,
-    ),
-    SavedTrip(
-      destination: 'Suzhou Garden Trail',
-      dateRange: 'Mar 12 - Mar 13',
-      itemCount: '7 past items',
-      lastUpdated: 'Archived',
-      folder: 'Culture',
-      upcoming: false,
-    ),
-    SavedTrip(
-      destination: 'Chengdu Food Weekend',
-      dateRange: 'Jan 18 - Jan 20',
-      itemCount: '9 past items',
-      lastUpdated: 'Archived',
-      folder: 'Food',
-      upcoming: false,
-    ),
-  ];
+  final String id;
+  final String title;
+  final String city;
+  final String summary;
+  final String duration;
+  final List<CityWalkStop> stops;
+}
 
-  final filters = const [
-    'Weekend Trip',
-    'City Break',
-    'Nature',
-    'Food',
-    'Culture',
-    'Family',
-    'Budget Friendly',
-  ];
+const _cityWalkTemplates = [
+  CityWalkTemplate(
+    id: 'citywalk-chengdu-kuanzhai',
+    title: 'Chengdu Alley Walk',
+    city: 'Chengdu',
+    summary: 'Tea houses, alleys, snacks, and an easy evening pace.',
+    duration: 'Half day',
+    stops: [
+      CityWalkStop(
+        time: '10:00',
+        place: 'People\'s Park',
+        activity: 'Tea house stop',
+        note: 'Start slow with tea and local street life.',
+        point: LatLng(30.6598, 104.0633),
+      ),
+      CityWalkStop(
+        time: '11:30',
+        place: 'Kuanzhai Alley',
+        activity: 'Walk historic lanes',
+        note: 'Good for snacks, photos, and compact walking.',
+        point: LatLng(30.6697, 104.0575),
+      ),
+      CityWalkStop(
+        time: '14:00',
+        place: 'Wenshu Monastery',
+        activity: 'Quiet culture stop',
+        note: 'A calmer afternoon contrast after the lanes.',
+        point: LatLng(30.6813, 104.0783),
+      ),
+    ],
+  ),
+  CityWalkTemplate(
+    id: 'citywalk-beijing-lake',
+    title: 'Beijing Lake & Hutong',
+    city: 'Beijing',
+    summary: 'Lakeside views, hutong streets, and classic Beijing texture.',
+    duration: '1 day',
+    stops: [
+      CityWalkStop(
+        time: '09:30',
+        place: 'Beihai Park',
+        activity: 'Lakeside walk',
+        note: 'Start with open water and palace garden views.',
+        point: LatLng(39.9255, 116.3892),
+      ),
+      CityWalkStop(
+        time: '12:00',
+        place: 'Shichahai',
+        activity: 'Lunch and lakeside route',
+        note: 'Keep the middle of the day flexible.',
+        point: LatLng(39.9371, 116.3865),
+      ),
+      CityWalkStop(
+        time: '15:00',
+        place: 'Nanluoguxiang',
+        activity: 'Hutong walk',
+        note: 'Finish with a dense, walkable hutong area.',
+        point: LatLng(39.9405, 116.4036),
+      ),
+    ],
+  ),
+  CityWalkTemplate(
+    id: 'citywalk-shanghai-riverside',
+    title: 'Shanghai Riverside Loop',
+    city: 'Shanghai',
+    summary: 'Museum, riverfront, skyline, and compact metro transfers.',
+    duration: 'Half day',
+    stops: [
+      CityWalkStop(
+        time: '10:00',
+        place: 'People\'s Square',
+        activity: 'City center start',
+        note: 'Easy metro access and a clean starting point.',
+        point: LatLng(31.2304, 121.4737),
+      ),
+      CityWalkStop(
+        time: '13:30',
+        place: 'The Bund',
+        activity: 'Riverside walk',
+        note: 'Classic skyline views with simple routing.',
+        point: LatLng(31.2400, 121.4900),
+      ),
+      CityWalkStop(
+        time: '16:00',
+        place: 'Yu Garden',
+        activity: 'Old city finish',
+        note: 'Snack stop and traditional architecture.',
+        point: LatLng(31.2272, 121.4921),
+      ),
+    ],
+  ),
+];
 
-  final preferences = const [
-    'Adventure',
-    'Relaxation',
-    'Foodie',
-    'Culture',
-    'Nature',
-    'Shopping',
-    'Family',
-    'Photography',
-  ];
+class TravelDataRepository {
+  TravelDataRepository({
+    required this.destinations,
+    required this.itineraryDays,
+    required this.mapPlaces,
+    required this.savedTrips,
+    required this.activeItineraryId,
+    required this.activeItineraryTitle,
+  });
 
-  final guideCards = const [
-    'Pre-trip checklist: destination, dates, attractions, packing, route check',
-    'First itinerary tip: add at least one place or activity before saving',
-    'Map first use: tap markers to keep location context in a bottom sheet',
-    'Offline note: keep manual notes for booking details until backend services exist',
-  ];
+  factory TravelDataRepository.empty() {
+    return TravelDataRepository(
+      destinations: [],
+      itineraryDays: [],
+      mapPlaces: [],
+      savedTrips: [],
+      activeItineraryId: null,
+      activeItineraryTitle: 'My Travel Plan',
+    );
+  }
 
-  final supportFaqs = const [
-    'Login: use phone verification or social auth when backend auth is ready.',
-    'Search: try city, attraction, or theme keywords. Empty states are handled in the UI.',
-    'Itinerary editing: add, edit, delete, move, and save plan items from the timeline.',
-    'Map loading: retry is shown if location data fails instead of a blank map.',
-    'Privacy: saved trips and preference data remain grouped under Profile settings.',
+  final List<Destination> destinations;
+  final List<ItineraryDay> itineraryDays;
+  final List<MapPlace> mapPlaces;
+  final List<SavedTrip> savedTrips;
+  String? activeItineraryId;
+  String activeItineraryTitle;
+
+  static const supportFaqs = [
+    'Login: unknown phone numbers or emails are registered automatically by the backend.',
+    'Search: Home and Explore use AMap-backed place search through the backend.',
+    'Itinerary editing: add, edit, delete, move, and save plan items from the backend timeline.',
+    'Map: web uses AMap JS API; Android and iOS use native AMap SDK keys.',
+    'Privacy: saved trips and personal travel data are stored in the local SQLite backend for this small team.',
   ];
 }
 
+class BackendLoginResult {
+  const BackendLoginResult({
+    required this.user,
+    required this.registered,
+  });
+
+  final AppUser user;
+  final bool registered;
+}
+
+abstract interface class WayfareBackend {
+  Future<BackendLoginResult> loginOrRegister(String identifier);
+  Future<TravelDataRepository> loadTravelData(String userId);
+  Future<List<TravelSearchResult>> searchPlaces(String query);
+  Future<ItineraryDay> addDay(
+    String itineraryId, {
+    required String title,
+    required String date,
+    required String city,
+    required String reminder,
+  });
+  Future<ItineraryItem> addItem(
+    String itineraryId,
+    String dayId, {
+    required String time,
+    required String place,
+    required String activity,
+    required String note,
+    LatLng? point,
+  });
+  Future<ItineraryItem> updateItem(
+    String itineraryId,
+    String dayId,
+    String itemId, {
+    required String targetDayId,
+    required String time,
+    required String place,
+    required String activity,
+    required String note,
+    LatLng? point,
+  });
+  Future<void> deleteItem(String itineraryId, String dayId, String itemId);
+  Future<List<ItineraryItem>> reorderItems(
+    String itineraryId,
+    String dayId,
+    List<String> itemIds,
+  );
+  Future<void> savePlan(String itineraryId);
+  Future<SavedTrip> saveDestination(String userId, Destination destination);
+  Future<void> deleteSavedTrip(String savedTripId);
+  Future<void> submitFeedback({
+    required String userId,
+    required String category,
+    required String description,
+  });
+}
+
+class WayfareApiClient implements WayfareBackend {
+  const WayfareApiClient({
+    this.baseUrl = const String.fromEnvironment(
+      'WAYFARE_API_BASE',
+      defaultValue: 'http://127.0.0.1:8080',
+    ),
+  });
+
+  final String baseUrl;
+
+  @override
+  Future<BackendLoginResult> loginOrRegister(String identifier) async {
+    final body = await _post('/auth/login', {
+      'identifier': identifier,
+    });
+    final user = _userFromJson(_asMap(body['user']));
+    return BackendLoginResult(
+      user: user,
+      registered: body['registered'] == true,
+    );
+  }
+
+  @override
+  Future<TravelDataRepository> loadTravelData(String userId) async {
+    final destinationsBody = await _get('/destinations');
+    final placesBody = await _get('/map/places');
+    final savedBody = await _get('/saved', query: {'userId': userId});
+    var itineraryBody = await _get('/itineraries', query: {'userId': userId});
+
+    var itineraries = _listOfMaps(itineraryBody['items']);
+    if (itineraries.isEmpty) {
+      final now = DateTime.now();
+      final isoDate = _isoDate(now);
+      final created = await _post('/itineraries', {
+        'userId': userId,
+        'title': 'My Travel Plan',
+        'destination': 'Current Trip',
+        'startDate': isoDate,
+        'endDate': isoDate,
+        'status': 'draft',
+        'days': <Map<String, Object?>>[],
+      });
+      itineraries = [_asMap(created['item'])];
+      itineraryBody = {'items': itineraries};
+    }
+
+    final activeTrip = _asMap(_listOfMaps(itineraryBody['items']).first);
+    return TravelDataRepository(
+      destinations: _listOfMaps(destinationsBody['items'])
+          .map(_destinationFromJson)
+          .toList(),
+      mapPlaces:
+          _listOfMaps(placesBody['items']).map(_mapPlaceFromJson).toList(),
+      savedTrips:
+          _listOfMaps(savedBody['items']).map(_savedTripFromJson).toList(),
+      itineraryDays: _daysFromJson(activeTrip),
+      activeItineraryId: activeTrip['id']?.toString(),
+      activeItineraryTitle:
+          activeTrip['title']?.toString().trim().isEmpty == false
+              ? activeTrip['title'].toString()
+              : 'My Travel Plan',
+    );
+  }
+
+  @override
+  Future<List<TravelSearchResult>> searchPlaces(String query) async {
+    final body = await _get('/search', query: {'q': query, 'limit': '20'});
+    return _listOfMaps(body['items']).map(_searchResultFromJson).toList();
+  }
+
+  @override
+  Future<ItineraryDay> addDay(
+    String itineraryId, {
+    required String title,
+    required String date,
+    required String city,
+    required String reminder,
+  }) async {
+    final body = await _post('/itineraries/$itineraryId/days', {
+      'title': title,
+      'date': date,
+      'city': city,
+      'reminder': reminder,
+    });
+    return _dayFromJson(_asMap(body['item']));
+  }
+
+  @override
+  Future<ItineraryItem> addItem(
+    String itineraryId,
+    String dayId, {
+    required String time,
+    required String place,
+    required String activity,
+    required String note,
+    LatLng? point,
+  }) async {
+    final body = await _post('/itineraries/$itineraryId/days/$dayId/items', {
+      'time': time,
+      'placeName': place,
+      'activity': activity,
+      'note': note,
+      'status': 'saved',
+      if (point != null) 'lat': point.latitude,
+      if (point != null) 'lng': point.longitude,
+    });
+    return _itemFromJson(_asMap(body['item']));
+  }
+
+  @override
+  Future<ItineraryItem> updateItem(
+    String itineraryId,
+    String dayId,
+    String itemId, {
+    required String targetDayId,
+    required String time,
+    required String place,
+    required String activity,
+    required String note,
+    LatLng? point,
+  }) async {
+    final body = await _patch(
+      '/itineraries/$itineraryId/days/$dayId/items/$itemId',
+      {
+        'targetDayId': targetDayId,
+        'time': time,
+        'placeName': place,
+        'activity': activity,
+        'note': note,
+        'status': 'saved',
+        if (point != null) 'lat': point.latitude,
+        if (point != null) 'lng': point.longitude,
+      },
+    );
+    return _itemFromJson(_asMap(body['item']));
+  }
+
+  @override
+  Future<void> deleteItem(
+      String itineraryId, String dayId, String itemId) async {
+    await _delete('/itineraries/$itineraryId/days/$dayId/items/$itemId');
+  }
+
+  @override
+  Future<List<ItineraryItem>> reorderItems(
+    String itineraryId,
+    String dayId,
+    List<String> itemIds,
+  ) async {
+    final body = await _patch(
+      '/itineraries/$itineraryId/days/$dayId/items/reorder',
+      {'itemIds': itemIds},
+    );
+    return _listOfMaps(body['items']).map(_itemFromJson).toList();
+  }
+
+  @override
+  Future<void> savePlan(String itineraryId) async {
+    await _patch('/itineraries/$itineraryId', {'status': 'saved'});
+  }
+
+  @override
+  Future<SavedTrip> saveDestination(
+      String userId, Destination destination) async {
+    final body = await _post('/saved', {
+      'userId': userId,
+      'type': 'destination',
+      'refId': destination.id,
+      'folder': destination.theme,
+      'label': destination.name,
+    });
+    return _savedTripFromJson(_asMap(body['item']));
+  }
+
+  @override
+  Future<void> deleteSavedTrip(String savedTripId) async {
+    await _delete('/saved/$savedTripId');
+  }
+
+  @override
+  Future<void> submitFeedback({
+    required String userId,
+    required String category,
+    required String description,
+  }) async {
+    await _post('/feedback', {
+      'userId': userId,
+      'category': category,
+      'description': description,
+    });
+  }
+
+  Future<Map<String, Object?>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
+    return _decode(await http.get(_uri(path, query)));
+  }
+
+  Future<Map<String, Object?>> _post(String path, Object body) async {
+    return _decode(
+      await http.post(
+        _uri(path),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ),
+    );
+  }
+
+  Future<Map<String, Object?>> _patch(String path, Object body) async {
+    return _decode(
+      await http.patch(
+        _uri(path),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ),
+    );
+  }
+
+  Future<Map<String, Object?>> _delete(String path) async {
+    return _decode(await http.delete(_uri(path)));
+  }
+
+  Uri _uri(String path, [Map<String, String>? query]) {
+    return Uri.parse('$baseUrl$path').replace(queryParameters: query);
+  }
+
+  Map<String, Object?> _decode(http.Response response) {
+    final body = response.body.trim().isEmpty
+        ? <String, Object?>{}
+        : _asMap(jsonDecode(response.body));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw BackendException(
+        body['error']?.toString() ??
+            'Backend request failed with status ${response.statusCode}.',
+      );
+    }
+    return body;
+  }
+}
+
+class BackendException implements Exception {
+  const BackendException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+AppUser _userFromJson(Map<String, Object?> json) {
+  final identifier = json['identifier']?.toString() ?? '';
+  final displayName = json['displayName']?.toString() ??
+      json['display_name']?.toString() ??
+      LocalAuthRepository._displayNameFromIdentifier(identifier);
+  return AppUser(
+    id: json['id']?.toString() ?? _nextLocalId('user'),
+    identifier: identifier,
+    displayName: displayName,
+  );
+}
+
+Destination _destinationFromJson(Map<String, Object?> json) {
+  final theme = json['theme']?.toString() ?? 'Trip';
+  final lat = _doubleValue(json['lat']) ?? 30.2431;
+  final lng = _doubleValue(json['lng']) ?? 120.1508;
+  return Destination(
+    id: json['id']?.toString() ?? _nextLocalId('dest'),
+    name: json['name']?.toString() ?? 'Destination',
+    theme: theme,
+    duration: json['duration']?.toString() ?? '1 day',
+    reason: json['priority'] == true
+        ? 'Recommended by backend rules'
+        : 'Available in destination catalog',
+    summary: json['summary']?.toString() ?? '',
+    tone: _toneForTheme(theme),
+    priority: json['priority'] == true,
+    point: LatLng(lat, lng),
+  );
+}
+
+MapPlace _mapPlaceFromJson(Map<String, Object?> json) {
+  final category = json['category']?.toString() ?? 'Place';
+  final lat = _doubleValue(json['lat']) ?? 30.2431;
+  final lng = _doubleValue(json['lng']) ?? 120.1508;
+  return MapPlace(
+    id: json['id']?.toString() ?? _nextLocalId('place'),
+    name: json['name']?.toString() ?? 'Place',
+    category: category,
+    distance: json['distance']?.toString() ?? 'Backend place',
+    description: json['description']?.toString() ?? '',
+    rating: json['rating']?.toString() ?? 'Unrated',
+    point: LatLng(lat, lng),
+    icon: _iconForCategory(category),
+  );
+}
+
+TravelSearchResult _searchResultFromJson(Map<String, Object?> json) {
+  final lat = _doubleValue(json['lat']) ?? 30.2431;
+  final lng = _doubleValue(json['lng']) ?? 120.1508;
+  return TravelSearchResult(
+    id: json['id']?.toString() ?? _nextLocalId('search'),
+    name: json['name']?.toString() ?? 'Place',
+    subtitle: json['subtitle']?.toString() ?? json['city']?.toString() ?? '',
+    intro: json['intro']?.toString() ?? '',
+    level: json['level']?.toString() ?? '',
+    sourceType: json['type']?.toString() ?? 'place',
+    point: LatLng(lat, lng),
+    imageUrl: json['imageUrl']?.toString(),
+  );
+}
+
+SavedTrip _savedTripFromJson(Map<String, Object?> json) {
+  final label = json['label']?.toString() ??
+      json['destination']?.toString() ??
+      json['ref_id']?.toString() ??
+      json['refId']?.toString() ??
+      'Saved item';
+  return SavedTrip(
+    id: json['id']?.toString() ?? _nextLocalId('saved'),
+    destination: label,
+    dateRange: json['dateRange']?.toString() ?? 'Saved destination',
+    itemCount: json['itemCount']?.toString() ?? 'Backend record',
+    lastUpdated: json['created_at']?.toString() ??
+        json['createdAt']?.toString() ??
+        'Stored',
+    folder: json['folder']?.toString() ?? 'Trips',
+    upcoming: json['upcoming'] == false ? false : true,
+  );
+}
+
+List<ItineraryDay> _daysFromJson(Map<String, Object?> trip) {
+  return _listOfMaps(trip['days']).map(_dayFromJson).toList();
+}
+
+ItineraryDay _dayFromJson(Map<String, Object?> json) {
+  return ItineraryDay(
+    id: json['id']?.toString(),
+    title: json['title']?.toString() ?? 'Day',
+    date: json['date']?.toString() ?? _isoDate(DateTime.now()),
+    city: json['city']?.toString() ?? 'Current city',
+    reminder: json['reminder']?.toString() ?? '',
+    items: _listOfMaps(json['items']).map(_itemFromJson).toList(),
+  );
+}
+
+ItineraryItem _itemFromJson(Map<String, Object?> json) {
+  final lat = _doubleValue(json['lat']);
+  final lng = _doubleValue(json['lng']);
+  return ItineraryItem(
+    id: json['id']?.toString(),
+    time: json['time']?.toString() ?? 'Flexible',
+    place:
+        json['placeName']?.toString() ?? json['place']?.toString() ?? 'Place',
+    activity: json['activity']?.toString() ?? 'Visit',
+    note: json['note']?.toString() ?? '',
+    status: _displayStatus(json['status']?.toString()),
+    point: lat == null || lng == null ? null : LatLng(lat, lng),
+  );
+}
+
+Map<String, Object?> _asMap(Object? value) {
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return <String, Object?>{};
+}
+
+List<Map<String, Object?>> _listOfMaps(Object? value) {
+  if (value is List) {
+    return value.map(_asMap).toList();
+  }
+  return <Map<String, Object?>>[];
+}
+
+double? _doubleValue(Object? value) {
+  if (value is num) {
+    return value.toDouble();
+  }
+  if (value is String) {
+    return double.tryParse(value);
+  }
+  return null;
+}
+
+String _displayStatus(String? status) {
+  switch (status) {
+    case 'saved':
+      return 'Saved';
+    case 'draft':
+      return 'Draft';
+    default:
+      return status == null || status.isEmpty ? 'Saved' : status;
+  }
+}
+
+String _isoDate(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
+Color _toneForTheme(String theme) {
+  final lower = theme.toLowerCase();
+  if (lower.contains('nature')) {
+    return const Color(0xFF4E8A7E);
+  }
+  if (lower.contains('food')) {
+    return const Color(0xFFAA6046);
+  }
+  if (lower.contains('culture')) {
+    return const Color(0xFF7A7D4E);
+  }
+  if (lower.contains('city')) {
+    return const Color(0xFF4E6A96);
+  }
+  return const Color(0xFF5E6C5B);
+}
+
+IconData _iconForCategory(String category) {
+  switch (category) {
+    case 'Food':
+      return Icons.restaurant_outlined;
+    case 'Nature':
+      return Icons.park_outlined;
+    case 'Transport':
+      return Icons.directions_transit_outlined;
+    case 'Saved Place':
+      return Icons.bookmark_border;
+    default:
+      return Icons.place_outlined;
+  }
+}
+
 class WayfareApp extends StatefulWidget {
-  const WayfareApp({super.key});
+  const WayfareApp({
+    this.backend = const WayfareApiClient(),
+    super.key,
+  });
+
+  final WayfareBackend backend;
 
   @override
   State<WayfareApp> createState() => _WayfareAppState();
@@ -349,6 +906,49 @@ class WayfareApp extends StatefulWidget {
 
 class _WayfareAppState extends State<WayfareApp> {
   ThemeSource _themeSource = ThemeSource.system;
+  final _authRepository = LocalAuthRepository();
+  AppUser? _user;
+  bool _authLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    AppUser? user;
+    try {
+      user = await _authRepository.currentUser();
+    } catch (_) {
+      user = null;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _user = user;
+      _authLoading = false;
+    });
+  }
+
+  Future<bool> _login(String identifier) async {
+    final result = await widget.backend.loginOrRegister(identifier);
+    await _authRepository.saveSession(result.user);
+    if (!mounted) {
+      return result.registered;
+    }
+    setState(() => _user = result.user);
+    return result.registered;
+  }
+
+  Future<void> _logout() async {
+    await _authRepository.logout();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _user = null);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -376,11 +976,18 @@ class _WayfareAppState extends State<WayfareApp> {
           debugShowCheckedModeBanner: false,
           theme: _themeData(lightScheme),
           darkTheme: _themeData(darkScheme),
-          home: TravelPlannerShell(
-            repository: MockTravelRepository(),
-            themeSource: _themeSource,
-            onThemeChanged: (source) => setState(() => _themeSource = source),
-          ),
+          home: _authLoading
+              ? const _AuthLoadingScreen()
+              : _user == null
+                  ? _LoginScreen(onLogin: _login)
+                  : TravelPlannerShell(
+                      backend: widget.backend,
+                      user: _user!,
+                      themeSource: _themeSource,
+                      onThemeChanged: (source) =>
+                          setState(() => _themeSource = source),
+                      onLogout: _logout,
+                    ),
         );
       },
     );
@@ -449,17 +1056,251 @@ class _WayfareAppState extends State<WayfareApp> {
   }
 }
 
+class _AuthLoadingScreen extends StatelessWidget {
+  const _AuthLoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: SizedBox(
+          width: 56,
+          height: 56,
+          child: CircularProgressIndicator(),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoginScreen extends StatefulWidget {
+  const _LoginScreen({required this.onLogin});
+
+  final Future<bool> Function(String identifier) onLogin;
+
+  @override
+  State<_LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<_LoginScreen> {
+  final _identifier = TextEditingController();
+  String? _identifierError;
+  var _loginType = 'phone';
+  var _remember = true;
+  var _submitting = false;
+
+  @override
+  void dispose() {
+    _identifier.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 430),
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.all(24),
+              children: [
+                Badge(
+                  alignment: Alignment.bottomRight,
+                  label: const Text('M3'),
+                  child: CircleAvatar(
+                    radius: 38,
+                    backgroundColor: scheme.primaryContainer,
+                    foregroundColor: scheme.onPrimaryContainer,
+                    child: const Icon(Icons.travel_explore, size: 36),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  'Wayfare',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Sign in to continue planning trips',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 28),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'phone',
+                      icon: Icon(Icons.phone_android_outlined),
+                      label: Text('Phone'),
+                    ),
+                    ButtonSegment(
+                      value: 'email',
+                      icon: Icon(Icons.alternate_email),
+                      label: Text('Email'),
+                    ),
+                  ],
+                  selected: {_loginType},
+                  onSelectionChanged: _submitting
+                      ? null
+                      : (value) => setState(() => _loginType = value.first),
+                ),
+                const SizedBox(height: 14),
+                LoginIdentifierField(
+                  controller: _identifier,
+                  loginType: _loginType,
+                  enabled: !_submitting,
+                  errorText: _identifierError,
+                  onChanged: (_) {
+                    if (_identifierError != null) {
+                      setState(() => _identifierError = null);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _remember,
+                  onChanged: _submitting
+                      ? null
+                      : (value) => setState(() => _remember = value ?? true),
+                  title: const Text('Keep me signed in'),
+                  subtitle: const Text('Local session for this small team app'),
+                ),
+                const SizedBox(height: 12),
+                if (_submitting) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 12),
+                ],
+                FilledButton.icon(
+                  onPressed: _submitting ? null : _submit,
+                  icon: const Icon(Icons.login),
+                  label: const Text('Continue'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed:
+                      _submitting ? null : () => _showPrivacyDialog(context),
+                  icon: const Icon(Icons.privacy_tip_outlined),
+                  label: const Text('Privacy Notice'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    final validationError = _validateIdentifier(_identifier.text);
+    if (validationError != null) {
+      setState(() => _identifierError = validationError);
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final registered = await widget.onLogin(_identifier.text);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            registered
+                ? 'New user registered and signed in.'
+                : 'Signed in successfully.',
+          ),
+        ),
+      );
+    } on FormatException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } on BackendException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Backend is not reachable. Start it from backend with: dart run bin/server.dart',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  String? _validateIdentifier(String value) {
+    final text = value.trim();
+    if (text.isEmpty) {
+      return 'Required';
+    }
+    if (_loginType == 'email' && !text.contains('@')) {
+      return 'Enter a valid email.';
+    }
+    if (_loginType == 'phone' && text.length < 6) {
+      return 'Enter a valid phone number.';
+    }
+    return null;
+  }
+
+  void _showPrivacyDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.privacy_tip_outlined),
+        title: const Text('Privacy Notice'),
+        content: const Text(
+          'Wayfare stores account identifiers, preferences, saved trips, and itinerary data for this course project. AMap requires its privacy statement to be shown and accepted before the map SDK works.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class TravelPlannerShell extends StatefulWidget {
   const TravelPlannerShell({
-    required this.repository,
+    required this.backend,
+    required this.user,
     required this.themeSource,
     required this.onThemeChanged,
+    required this.onLogout,
     super.key,
   });
 
-  final MockTravelRepository repository;
+  final WayfareBackend backend;
+  final AppUser user;
   final ThemeSource themeSource;
   final ValueChanged<ThemeSource> onThemeChanged;
+  final VoidCallback onLogout;
 
   @override
   State<TravelPlannerShell> createState() => _TravelPlannerShellState();
@@ -467,121 +1308,250 @@ class TravelPlannerShell extends StatefulWidget {
 
 class _TravelPlannerShellState extends State<TravelPlannerShell> {
   AppTab _tab = AppTab.home;
+  TravelDataRepository _repository = TravelDataRepository.empty();
+  var _loadingData = true;
+  var _syncing = false;
+  String? _backendError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBackendData();
+  }
+
+  @override
+  void didUpdateWidget(TravelPlannerShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.user.id != widget.user.id ||
+        oldWidget.backend != widget.backend) {
+      _repository = TravelDataRepository.empty();
+      _loadingData = true;
+      _backendError = null;
+      _loadBackendData();
+    }
+  }
+
+  Future<void> _loadBackendData() async {
+    setState(() {
+      _loadingData = true;
+      _backendError = null;
+    });
+    try {
+      final repository = await widget.backend.loadTravelData(widget.user.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _repository = repository;
+        _loadingData = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _backendError = error.toString();
+        _loadingData = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_title),
-            Text(
-              _subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelMedium,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 720;
+        return Scaffold(
+          appBar: AppBar(
+            toolbarHeight: 76,
+            scrolledUnderElevation: 1,
+            titleSpacing: 16,
+            title: _AppHeader(
+              title: _title,
+              subtitle: _subtitle,
+              stopCount: _plannedStopCount,
+              dayCount: _repository.itineraryDays.length,
             ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Notifications',
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () => _showInfo(
-              'Notifications',
-              'Itinerary reminders and saved trip updates will appear here once backend messaging is connected.',
-            ),
-          ),
-          IconButton(
-            tooltip: 'Help',
-            icon: const Icon(Icons.help_outline),
-            onPressed: _showHelpCenter,
-          ),
-        ],
-      ),
-      drawer: _NavigationDrawer(
-        selectedTab: _tab,
-        onSelected: (tab) {
-          Navigator.pop(context);
-          setState(() => _tab = tab);
-        },
-        onHelp: () {
-          Navigator.pop(context);
-          _showHelpCenter();
-        },
-      ),
-      body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 260),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.02, 0.01),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
+            actions: [
+              IconButton(
+                tooltip: 'Help',
+                icon: const Icon(Icons.help_outline),
+                onPressed: _showHelpCenter,
               ),
-            );
-          },
-          child: KeyedSubtree(
-            key: ValueKey(_tab),
-            child: _body,
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Tooltip(
+                  message: widget.user.identifier,
+                  child: CircleAvatar(
+                    radius: 18,
+                    child: Text(widget.user.initials),
+                  ),
+                ),
+              ),
+            ],
           ),
+          body: SafeArea(
+            child: Row(
+              children: [
+                if (wide) ...[
+                  _AdaptiveNavigationRail(
+                    selectedTab: _tab,
+                    onSelected: (tab) => setState(() => _tab = tab),
+                    user: widget.user,
+                  ),
+                  const VerticalDivider(thickness: 1, width: 1),
+                ],
+                Expanded(child: _animatedBody),
+              ],
+            ),
+          ),
+          floatingActionButton: _floatingActionButton,
+          bottomNavigationBar: wide ? null : _bottomNavigationBar,
+        );
+      },
+    );
+  }
+
+  Widget? get _floatingActionButton {
+    switch (_tab) {
+      case AppTab.home:
+        return FloatingActionButton.extended(
+          tooltip: 'Plan actions',
+          onPressed: _showHomeActionSheet,
+          icon: const Icon(Icons.add),
+          label: const Text('Plan'),
+        );
+      case AppTab.itinerary:
+        return FloatingActionButton(
+          tooltip: 'Add attraction or activity',
+          onPressed: () => _showEditItemSheet(),
+          child: const Icon(Icons.add),
+        );
+      case AppTab.explore:
+      case AppTab.saved:
+      case AppTab.profile:
+        return null;
+    }
+  }
+
+  void _showHomeActionSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return _SheetPadding(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline),
+                title: const Text('Create New Itinerary'),
+                subtitle: const Text('Open the timeline and add a day'),
+                onTap: () {
+                  Navigator.pop(context);
+                  setState(() => _tab = AppTab.itinerary);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      _showAddDaySheet();
+                    }
+                  });
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.map_outlined),
+                title: const Text('Explore Map'),
+                subtitle: const Text(
+                    'Search, pick points, and inspect route context'),
+                onTap: () {
+                  Navigator.pop(context);
+                  setState(() => _tab = AppTab.explore);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.bookmark_border),
+                title: const Text('Saved Trips'),
+                subtitle: const Text('Review saved plans and copied walks'),
+                onTap: () {
+                  Navigator.pop(context);
+                  setState(() => _tab = AppTab.saved);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget get _animatedBody {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.02, 0.01),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey(_tab),
+        child: _body,
+      ),
+    );
+  }
+
+  int get _plannedStopCount {
+    return _repository.itineraryDays
+        .fold<int>(0, (sum, day) => sum + day.items.length);
+  }
+
+  Widget get _bottomNavigationBar {
+    return NavigationBar(
+      selectedIndex: _tab.index,
+      onDestinationSelected: (index) {
+        setState(() => _tab = AppTab.values[index]);
+      },
+      destinations: const [
+        NavigationDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home),
+          label: 'Home',
         ),
-      ),
-      floatingActionButton: _tab == AppTab.itinerary
-          ? FloatingActionButton(
-              tooltip: 'Add attraction or activity',
-              onPressed: () => _showEditItemSheet(),
-              child: const Icon(Icons.add),
-            )
-          : null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab.index,
-        onDestinationSelected: (index) {
-          setState(() => _tab = AppTab.values[index]);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.explore_outlined),
-            selectedIcon: Icon(Icons.explore),
-            label: 'Explore',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.list_alt_outlined),
-            selectedIcon: Icon(Icons.list_alt),
-            label: 'Itinerary',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.bookmark_border),
-            selectedIcon: Icon(Icons.bookmark),
-            label: 'Saved',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
-      ),
+        NavigationDestination(
+          icon: Icon(Icons.explore_outlined),
+          selectedIcon: Icon(Icons.explore),
+          label: 'Explore',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.list_alt_outlined),
+          selectedIcon: Icon(Icons.list_alt),
+          label: 'Itinerary',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.bookmark_border),
+          selectedIcon: Icon(Icons.bookmark),
+          label: 'Saved',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          selectedIcon: Icon(Icons.person),
+          label: 'Profile',
+        ),
+      ],
     );
   }
 
   String get _title {
     switch (_tab) {
       case AppTab.home:
-        return 'Wayfare';
+        return 'Home';
       case AppTab.explore:
         return 'Explore Map';
       case AppTab.itinerary:
@@ -596,7 +1566,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   String get _subtitle {
     switch (_tab) {
       case AppTab.home:
-        return 'Discover, plan, and reopen saved trips';
+        return 'Search places, copy CityWalks, continue planning';
       case AppTab.explore:
         return 'Markers, route context, and bottom sheet details';
       case AppTab.itinerary:
@@ -604,99 +1574,137 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       case AppTab.saved:
         return 'Upcoming, saved destinations, and history';
       case AppTab.profile:
-        return 'Account, preferences, theme, and support';
+        return 'Account, travel data, appearance, and support';
     }
   }
 
   Widget get _body {
+    if (_loadingData) {
+      return const _BackendLoadingPanel();
+    }
+    final backendError = _backendError;
+    if (backendError != null) {
+      return _BackendErrorPanel(
+        message: backendError,
+        onRetry: _loadBackendData,
+      );
+    }
     switch (_tab) {
       case AppTab.home:
         return _HomeScreen(
-          repository: widget.repository,
+          repository: _repository,
           onOpenMap: () => setState(() => _tab = AppTab.explore),
-          onOpenSaved: () => setState(() => _tab = AppTab.saved),
-          onCreateItinerary: () => setState(() => _tab = AppTab.itinerary),
-          onDestinationDetail: _showDestinationDetail,
-          onAddDestination: (destination) => _addMockItem(
-            destination.name,
-            'Explore ${destination.theme}',
-            'Added from recommendations.',
+          onSearch: widget.backend.searchPlaces,
+          onAddSearchResult: (result) => _showAddPlaceToDaySheet(
+            result.name,
+            'Visit ${result.name}',
+            result.intro,
+            point: result.point,
           ),
-          onShowInfo: _showInfo,
+          onCopyTemplate: _copyCityWalkTemplate,
         );
       case AppTab.explore:
         return _ExploreScreen(
-          places: widget.repository.mapPlaces,
+          places: _repository.mapPlaces,
+          itineraryDays: _repository.itineraryDays,
           onPlaceSelected: _showPlaceSheet,
-          onRetry: () => _toast('Mock map data refreshed'),
+          onMapPointPicked: _showMapPointAddSheet,
+          onSearch: widget.backend.searchPlaces,
+          onAddSearchResult: (result) => _showAddPlaceToDaySheet(
+            result.name,
+            'Visit ${result.name}',
+            result.intro,
+            point: result.point,
+          ),
+          onRetry: _loadBackendData,
         );
       case AppTab.itinerary:
         return _ItineraryScreen(
-          days: widget.repository.itineraryDays,
+          days: _repository.itineraryDays,
           onAddDay: _showAddDaySheet,
           onEdit: (item) => _showEditItemSheet(item: item),
           onDelete: _confirmDelete,
           onReorder: _reorderItem,
           onDuplicate: _duplicateItem,
           onOpenMap: () => setState(() => _tab = AppTab.explore),
-          onSave: () => _toast(
-            'Plan saved locally. Backend storage can replace mock data later.',
-          ),
+          onSave: _saveActivePlan,
         );
       case AppTab.saved:
         return _SavedScreen(
-          trips: widget.repository.savedTrips,
-          onAdd: (trip) => _addMockItem(
+          trips: _repository.savedTrips,
+          onAdd: (trip) => _showAddPlaceToDaySheet(
             trip.destination,
             'Reused saved trip idea',
             'Added from saved trips.',
           ),
           onShowInfo: _showInfo,
-          onRemove: () => _toast('Remove from saved placeholder'),
+          onRemove: _removeSavedTrip,
         );
       case AppTab.profile:
         return _ProfileScreen(
-          repository: widget.repository,
+          repository: _repository,
+          user: widget.user,
           themeSource: widget.themeSource,
           onThemePick: _showThemeChooser,
           onHelp: _showHelpCenter,
           onFeedback: _showFeedbackSheet,
-          onOnboarding: _showOnboarding,
           onShowInfo: _showInfo,
-          onToast: _toast,
+          onLogout: widget.onLogout,
         );
     }
   }
 
-  void _addMockItem(String place, String activity, String note) {
-    _showQuickAddToDaySheet(place: place, activity: activity, note: note);
-  }
-
-  void _ensureDefaultDay() {
-    if (widget.repository.itineraryDays.isNotEmpty) {
+  Future<void> _showAddPlaceToDaySheet(
+    String place,
+    String activity,
+    String note, {
+    LatLng? point,
+  }) async {
+    if (!await _ensureDefaultDay()) {
       return;
     }
-    setState(() {
-      widget.repository.itineraryDays.add(
-        ItineraryDay(
-          title: 'Day 1',
-          date: 'TBD',
-          city: 'TBD',
-          reminder: 'Reminder: review route before departure',
-          items: [],
-        ),
-      );
-    });
+    _showQuickAddToDaySheet(
+      place: place,
+      activity: activity,
+      note: note,
+      point: point,
+    );
+  }
+
+  Future<bool> _ensureDefaultDay() async {
+    if (_repository.itineraryDays.isNotEmpty) {
+      return true;
+    }
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return false;
+    }
+    final day = await _runBackendMutation(
+      () => widget.backend.addDay(
+        itineraryId,
+        title: 'Day 1',
+        date: _isoDate(DateTime.now()),
+        city: 'Current city',
+        reminder: 'Review route before departure',
+      ),
+    );
+    if (day == null || !mounted) {
+      return false;
+    }
+    setState(() => _repository.itineraryDays.add(day));
+    return true;
   }
 
   void _showQuickAddToDaySheet({
     required String place,
     required String activity,
     required String note,
+    LatLng? point,
   }) {
     _ensureDefaultDay();
     var selectedDayIndex = 0;
-    final time = TextEditingController(text: 'Flexible');
+    var selectedTime = _parseTimeOfDay(null);
 
     showModalBottomSheet<void>(
       context: context,
@@ -720,49 +1728,60 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                     initialValue: selectedDayIndex,
                     decoration: const InputDecoration(labelText: 'Target day'),
                     items: [
-                      for (var i = 0;
-                          i < widget.repository.itineraryDays.length;
-                          i++)
+                      for (var i = 0; i < _repository.itineraryDays.length; i++)
                         DropdownMenuItem<int>(
                           value: i,
                           child: Text(
-                            '${widget.repository.itineraryDays[i].title} | ${widget.repository.itineraryDays[i].date}',
+                            '${_repository.itineraryDays[i].title} | ${_repository.itineraryDays[i].date}',
                           ),
                         ),
+                      DropdownMenuItem<int>(
+                        value: _repository.itineraryDays.length,
+                        child: const Text('Add new day...'),
+                      ),
                     ],
-                    onChanged: (value) {
+                    onChanged: (value) async {
                       if (value != null) {
-                        setSheetState(() => selectedDayIndex = value);
+                        if (value == _repository.itineraryDays.length) {
+                          final index =
+                              await _pickAndAddDayFromDropdown(context);
+                          if (index != null && context.mounted) {
+                            setSheetState(() => selectedDayIndex = index);
+                          }
+                        } else {
+                          setSheetState(() => selectedDayIndex = value);
+                        }
                       }
                     },
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: time,
-                    decoration:
-                        const InputDecoration(labelText: 'Time', filled: true),
+                  _TimePickerField(
+                    value: selectedTime,
+                    label: 'Time',
+                    onChanged: (value) =>
+                        setSheetState(() => selectedTime = value),
                   ),
                   const SizedBox(height: 16),
                   FilledButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        widget.repository.itineraryDays[selectedDayIndex].items
-                            .add(
-                          ItineraryItem(
-                            time: time.text.trim().isEmpty
-                                ? 'Flexible'
-                                : time.text.trim(),
-                            place: place,
-                            activity: activity,
-                            note: note,
-                            status: 'Unsaved changes',
-                          ),
-                        );
-                      });
-                      Navigator.pop(context);
-                      _toast(
-                          'Added to ${widget.repository.itineraryDays[selectedDayIndex].title}');
-                    },
+                    onPressed: _syncing
+                        ? null
+                        : () async {
+                            final created = await _createItem(
+                              selectedDayIndex,
+                              time: _formatTimeOfDay(selectedTime),
+                              place: place,
+                              activity: activity,
+                              note: note,
+                              point: point,
+                            );
+                            if (created == null || !context.mounted) {
+                              return;
+                            }
+                            Navigator.pop(context);
+                            _toast(
+                              'Added to ${_repository.itineraryDays[selectedDayIndex].title}',
+                            );
+                          },
                     icon: const Icon(Icons.add),
                     label: const Text('Add Item'),
                   ),
@@ -775,62 +1794,195 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     );
   }
 
-  void _addDay({
+  Future<bool> _addDay({
     required String title,
     required String date,
     required String city,
     required String reminder,
-  }) {
-    setState(() {
-      widget.repository.itineraryDays.add(
-        ItineraryDay(
-          title: title,
-          date: date,
-          city: city,
-          reminder: reminder,
-          items: [],
-        ),
-      );
-    });
+  }) async {
+    final existingIndex =
+        _repository.itineraryDays.indexWhere((day) => day.date == date);
+    if (existingIndex >= 0) {
+      _toast(
+          'Using existing ${_repository.itineraryDays[existingIndex].title}');
+      return true;
+    }
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return false;
+    }
+    final day = await _runBackendMutation(
+      () => widget.backend.addDay(
+        itineraryId,
+        title: title,
+        date: date,
+        city: city,
+        reminder: reminder,
+      ),
+    );
+    if (day == null || !mounted) {
+      return false;
+    }
+    setState(() => _repository.itineraryDays.add(day));
     _toast('New day created');
+    return true;
   }
 
-  void _reorderItem(ItineraryDay day, int oldIndex, int newIndex) {
+  Future<int?> _pickAndAddDayFromDropdown(BuildContext pickerContext) async {
+    final picked = await showDatePicker(
+      context: pickerContext,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2035),
+    );
+    if (picked == null) {
+      return null;
+    }
+    final existingIndex = _repository.itineraryDays
+        .indexWhere((day) => day.date == _isoDate(picked));
+    if (existingIndex >= 0) {
+      _toast(
+          'Using existing ${_repository.itineraryDays[existingIndex].title}');
+      return existingIndex;
+    }
+    final created = await _addDay(
+      title: 'Day ${_repository.itineraryDays.length + 1}',
+      date: _isoDate(picked),
+      city: 'Current city',
+      reminder: 'Review route before departure',
+    );
+    if (!created || !mounted) {
+      return null;
+    }
+    return _repository.itineraryDays.length - 1;
+  }
+
+  Future<void> _copyCityWalkTemplate(CityWalkTemplate template) async {
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return;
+    }
+    final date = _isoDate(DateTime.now());
+    var dayIndex =
+        _repository.itineraryDays.indexWhere((day) => day.date == date);
+    ItineraryDay? targetDay =
+        dayIndex >= 0 ? _repository.itineraryDays[dayIndex] : null;
+
+    if (targetDay == null) {
+      targetDay = await _runBackendMutation(
+        () => widget.backend.addDay(
+          itineraryId,
+          title: template.title,
+          date: date,
+          city: template.city,
+          reminder: 'Copied from system CityWalk template',
+        ),
+      );
+      if (targetDay == null || !mounted) {
+        return;
+      }
+      setState(() => _repository.itineraryDays.add(targetDay!));
+      dayIndex = _repository.itineraryDays.length - 1;
+    }
+
+    var copied = 0;
+    for (final stop in template.stops) {
+      final created = await _runBackendMutation(
+        () => widget.backend.addItem(
+          itineraryId,
+          targetDay!.id,
+          time: stop.time,
+          place: stop.place,
+          activity: stop.activity,
+          note: stop.note,
+          point: stop.point,
+        ),
+      );
+      if (created != null && mounted) {
+        setState(() => _repository.itineraryDays[dayIndex].items.add(created));
+        copied += 1;
+      }
+    }
+    if (copied > 0) {
+      _toast('Copied ${template.title} to your itinerary');
+    }
+  }
+
+  Future<void> _reorderItem(
+      ItineraryDay day, int oldIndex, int newIndex) async {
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return;
+    }
+    final before = List<ItineraryItem>.from(day.items);
     setState(() {
       if (oldIndex < newIndex) {
         newIndex -= 1;
       }
       final item = day.items.removeAt(oldIndex);
-      item.status = 'Unsaved changes';
       day.items.insert(newIndex, item);
+    });
+    final reordered = await _runBackendMutation(
+      () => widget.backend.reorderItems(
+        itineraryId,
+        day.id,
+        day.items.map((item) => item.id).toList(),
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    if (reordered == null) {
+      setState(() {
+        day.items
+          ..clear()
+          ..addAll(before);
+      });
+      return;
+    }
+    setState(() {
+      day.items
+        ..clear()
+        ..addAll(reordered);
     });
   }
 
-  void _duplicateItem(ItineraryDay day, ItineraryItem item) {
-    setState(() {
-      final index = day.items.indexOf(item);
-      day.items.insert(
-        index < 0 ? day.items.length : index + 1,
-        ItineraryItem(
-          time: item.time,
-          place: item.place,
-          activity: '${item.activity} copy',
-          note: item.note,
-          status: 'Unsaved changes',
-        ),
-      );
-    });
+  Future<void> _duplicateItem(ItineraryDay day, ItineraryItem item) async {
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return;
+    }
+    final created = await _runBackendMutation(
+      () => widget.backend.addItem(
+        itineraryId,
+        day.id,
+        time: item.time,
+        place: item.place,
+        activity: '${item.activity} copy',
+        note: item.note,
+        point: item.point,
+      ),
+    );
+    if (created == null || !mounted) {
+      return;
+    }
+    setState(() => day.items.add(created));
     _toast('Item duplicated');
   }
 
   void _showAddDaySheet() {
     final title = TextEditingController(
-      text: 'Day ${widget.repository.itineraryDays.length + 1}',
+      text: 'Day ${_repository.itineraryDays.length + 1}',
     );
-    final date = TextEditingController();
+    var selectedDate =
+        DateTime.now().add(Duration(days: _repository.itineraryDays.length));
     final city = TextEditingController();
     final reminder = TextEditingController(
-      text: 'Reminder: review route before departure',
+      text: 'Review route before departure',
     );
     final formKey = GlobalKey<FormState>();
 
@@ -839,121 +1991,99 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
-        return _SheetPadding(
-          bottomInset: MediaQuery.viewInsetsOf(context).bottom,
-          child: Form(
-            key: formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Create New Day',
-                    style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: title,
-                  decoration: const InputDecoration(
-                      labelText: 'Day title', filled: true),
-                  validator: _required,
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return _SheetPadding(
+              bottomInset: MediaQuery.viewInsetsOf(context).bottom,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Create New Day',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: title,
+                      decoration: const InputDecoration(
+                        labelText: 'Day title',
+                        filled: true,
+                      ),
+                      validator: _required,
+                    ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate,
+                          firstDate: DateTime(2024),
+                          lastDate: DateTime(2035),
+                        );
+                        if (picked != null) {
+                          setSheetState(() => selectedDate = picked);
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Date',
+                          filled: true,
+                          prefixIcon: Icon(Icons.calendar_today_outlined),
+                        ),
+                        child: Text(_isoDate(selectedDate)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: city,
+                      decoration: const InputDecoration(
+                        labelText: 'City',
+                        filled: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: reminder,
+                      decoration: const InputDecoration(
+                        labelText: 'Weather or reminder',
+                        filled: true,
+                      ),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _syncing
+                          ? null
+                          : () async {
+                              if (!formKey.currentState!.validate()) {
+                                return;
+                              }
+                              final created = await _addDay(
+                                title: title.text.trim(),
+                                date: _isoDate(selectedDate),
+                                city: city.text.trim().isEmpty
+                                    ? 'Current city'
+                                    : city.text.trim(),
+                                reminder: reminder.text.trim().isEmpty
+                                    ? 'Review route before departure'
+                                    : reminder.text.trim(),
+                              );
+                              if (created && context.mounted) {
+                                Navigator.pop(context);
+                              }
+                            },
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      label: const Text('Add Day'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: date,
-                  decoration:
-                      const InputDecoration(labelText: 'Date', filled: true),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: city,
-                  decoration:
-                      const InputDecoration(labelText: 'City', filled: true),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: reminder,
-                  decoration: const InputDecoration(
-                    labelText: 'Weather or reminder placeholder',
-                    filled: true,
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () {
-                    if (!formKey.currentState!.validate()) {
-                      return;
-                    }
-                    _addDay(
-                      title: title.text.trim(),
-                      date: date.text.trim().isEmpty ? 'TBD' : date.text.trim(),
-                      city: city.text.trim().isEmpty ? 'TBD' : city.text.trim(),
-                      reminder: reminder.text.trim().isEmpty
-                          ? 'Reminder: review route before departure'
-                          : reminder.text.trim(),
-                    );
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.calendar_month_outlined),
-                  label: const Text('Add Day'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showDestinationDetail(Destination destination) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return _SheetPadding(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(destination.name,
-                  style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 8),
-              Text(destination.summary),
-              const SizedBox(height: 12),
-              Chip(label: Text(destination.reason)),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _addMockItem(
-                        destination.name,
-                        'Plan visit',
-                        'Added from destination detail.',
-                      );
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add to Itinerary'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      setState(() => _tab = AppTab.explore);
-                    },
-                    icon: const Icon(Icons.map_outlined),
-                    label: const Text('Open Map'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _toast('Saved destination'),
-                    icon: const Icon(Icons.bookmark_border),
-                    label: const Text('Save'),
-                  ),
-                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -972,7 +2102,11 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
               Text(place.name,
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 6),
-              Text('${place.category} | ${place.distance} | ${place.rating}'),
+              Text(
+                [place.category, place.distance, place.rating]
+                    .where((part) => part.trim().isNotEmpty)
+                    .join(' | '),
+              ),
               const SizedBox(height: 12),
               Text(place.description),
               const SizedBox(height: 18),
@@ -983,16 +2117,15 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                   FilledButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
-                      _addMockItem(place.name, 'Visit ${place.category}',
-                          place.description);
+                      _showAddPlaceToDaySheet(
+                        place.name,
+                        'Visit ${place.category}',
+                        place.description,
+                        point: place.point,
+                      );
                     },
                     icon: const Icon(Icons.add),
                     label: const Text('Add to Itinerary'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _toast('Place saved'),
-                    icon: const Icon(Icons.bookmark_border),
-                    label: const Text('Save Place'),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => _showInfo(place.name, place.description),
@@ -1008,17 +2141,167 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     );
   }
 
-  void _showEditItemSheet({ItineraryItem? item}) {
-    final isNew = item == null;
-    if (isNew) {
-      _ensureDefaultDay();
+  Future<bool> _showMapPointAddSheet(AmapPickResult pick) async {
+    if (!await _ensureDefaultDay()) {
+      return false;
     }
-    final days = widget.repository.itineraryDays;
+    if (!mounted) {
+      return false;
+    }
+    final point = pick.point;
+    final inferredName =
+        pick.name.trim().isEmpty ? 'Selected map point' : pick.name.trim();
+    final address = pick.address?.trim();
+    var selectedDayIndex = 0;
+    final place = TextEditingController(text: inferredName);
+    var selectedTime = _parseTimeOfDay(null);
+    final note = TextEditingController(
+      text: address == null || address.isEmpty
+          ? 'Added from AMap point selection.'
+          : address,
+    );
+    final formKey = GlobalKey<FormState>();
+
+    final added = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return _SheetPadding(
+              bottomInset: MediaQuery.viewInsetsOf(context).bottom,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Add Selected Map Point',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      address == null || address.isEmpty
+                          ? 'Lat ${point.latitude.toStringAsFixed(6)}, Lng ${point.longitude.toStringAsFixed(6)}'
+                          : address,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<int>(
+                      initialValue: selectedDayIndex,
+                      decoration:
+                          const InputDecoration(labelText: 'Target day'),
+                      items: [
+                        for (var i = 0;
+                            i < _repository.itineraryDays.length;
+                            i++)
+                          DropdownMenuItem<int>(
+                            value: i,
+                            child: Text(
+                              '${_repository.itineraryDays[i].title} | ${_repository.itineraryDays[i].date}',
+                            ),
+                          ),
+                        DropdownMenuItem<int>(
+                          value: _repository.itineraryDays.length,
+                          child: const Text('Add new day...'),
+                        ),
+                      ],
+                      onChanged: (value) async {
+                        if (value != null) {
+                          if (value == _repository.itineraryDays.length) {
+                            final index =
+                                await _pickAndAddDayFromDropdown(context);
+                            if (index != null && context.mounted) {
+                              setSheetState(() => selectedDayIndex = index);
+                            }
+                          } else {
+                            setSheetState(() => selectedDayIndex = value);
+                          }
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: place,
+                      decoration:
+                          const InputDecoration(labelText: 'Place name'),
+                      validator: _required,
+                    ),
+                    const SizedBox(height: 12),
+                    _TimePickerField(
+                      value: selectedTime,
+                      label: 'Time',
+                      onChanged: (value) =>
+                          setSheetState(() => selectedTime = value),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: note,
+                      decoration: const InputDecoration(labelText: 'Notes'),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: () => Navigator.pop(context, false),
+                          icon: const Icon(Icons.close),
+                          label: const Text('Cancel'),
+                        ),
+                        const Spacer(),
+                        FilledButton.icon(
+                          onPressed: _syncing
+                              ? null
+                              : () async {
+                                  if (!formKey.currentState!.validate()) {
+                                    return;
+                                  }
+                                  final created = await _createItem(
+                                    selectedDayIndex,
+                                    time: _formatTimeOfDay(selectedTime),
+                                    place: place.text.trim(),
+                                    activity: 'Visit selected map point',
+                                    note: note.text.trim(),
+                                    point: point,
+                                  );
+                                  if (created == null || !context.mounted) {
+                                    return;
+                                  }
+                                  Navigator.pop(context, true);
+                                  _toast('Map point added to itinerary');
+                                },
+                          icon: const Icon(Icons.add_location_alt_outlined),
+                          label: const Text('Add to Itinerary'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    return added ?? false;
+  }
+
+  Future<void> _showEditItemSheet({ItineraryItem? item}) async {
+    final isNew = item == null;
+    if (isNew && !await _ensureDefaultDay()) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    final days = _repository.itineraryDays;
     final currentDayIndex = isNew
         ? math.max(0, days.length - 1)
         : days.indexWhere((day) => day.items.contains(item));
     var selectedDayIndex = currentDayIndex < 0 ? 0 : currentDayIndex;
-    final time = TextEditingController(text: item?.time ?? '15:30');
+    var selectedTime = _parseTimeOfDay(item?.time);
     final place = TextEditingController(text: item?.place ?? '');
     final activity = TextEditingController(text: item?.activity ?? '');
     final note = TextEditingController(text: item?.note ?? '');
@@ -1058,20 +2341,31 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                             value: i,
                             child: Text('${days[i].title} | ${days[i].date}'),
                           ),
+                        DropdownMenuItem<int>(
+                          value: days.length,
+                          child: const Text('Add new day...'),
+                        ),
                       ],
-                      onChanged: (value) {
+                      onChanged: (value) async {
                         if (value != null) {
-                          setSheetState(() => selectedDayIndex = value);
+                          if (value == _repository.itineraryDays.length) {
+                            final index =
+                                await _pickAndAddDayFromDropdown(context);
+                            if (index != null && context.mounted) {
+                              setSheetState(() => selectedDayIndex = index);
+                            }
+                          } else {
+                            setSheetState(() => selectedDayIndex = value);
+                          }
                         }
                       },
                     ),
                     const SizedBox(height: 12),
-                    TextFormField(
-                      controller: time,
-                      decoration: const InputDecoration(
-                        labelText: 'Time range',
-                        filled: true,
-                      ),
+                    _TimePickerField(
+                      value: selectedTime,
+                      label: 'Time',
+                      onChanged: (value) =>
+                          setSheetState(() => selectedTime = value),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -1102,48 +2396,72 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                     ),
                     const SizedBox(height: 16),
                     FilledButton.icon(
-                      onPressed: () {
-                        if (!formKey.currentState!.validate()) {
-                          return;
-                        }
-                        setState(() {
-                          final targetDay =
-                              widget.repository.itineraryDays[selectedDayIndex];
-                          if (isNew) {
-                            targetDay.items.add(
-                              ItineraryItem(
-                                time: time.text.trim().isEmpty
-                                    ? 'Flexible'
-                                    : time.text.trim(),
-                                place: place.text.trim(),
-                                activity: activity.text.trim(),
-                                note: note.text.trim(),
-                                status: 'Unsaved changes',
-                              ),
-                            );
-                          } else {
-                            ItineraryDay? oldDay;
-                            for (final day in widget.repository.itineraryDays) {
-                              if (day.items.contains(item)) {
-                                oldDay = day;
-                                break;
+                      onPressed: _syncing
+                          ? null
+                          : () async {
+                              if (!formKey.currentState!.validate()) {
+                                return;
                               }
-                            }
-                            item.time = time.text.trim().isEmpty
-                                ? 'Flexible'
-                                : time.text.trim();
-                            item.place = place.text.trim();
-                            item.activity = activity.text.trim();
-                            item.note = note.text.trim();
-                            item.status = 'Unsaved changes';
-                            if (oldDay != null && oldDay != targetDay) {
-                              oldDay.items.remove(item);
-                              targetDay.items.add(item);
-                            }
-                          }
-                        });
-                        Navigator.pop(context);
-                      },
+                              final itineraryId = _repository.activeItineraryId;
+                              if (itineraryId == null) {
+                                _toast(
+                                    'Create or load a backend itinerary first.');
+                                return;
+                              }
+                              final targetDay = days[selectedDayIndex];
+                              ItineraryDay? oldDay;
+                              if (!isNew) {
+                                for (final day in _repository.itineraryDays) {
+                                  if (day.items.contains(item)) {
+                                    oldDay = day;
+                                    break;
+                                  }
+                                }
+                              }
+                              final resolvedPoint =
+                                  item?.point ?? _pointForPlaceName(place.text);
+                              ItineraryItem? saved;
+                              if (isNew) {
+                                saved = await _runBackendMutation(
+                                  () => widget.backend.addItem(
+                                    itineraryId,
+                                    targetDay.id,
+                                    time: _formatTimeOfDay(selectedTime),
+                                    place: place.text.trim(),
+                                    activity: activity.text.trim(),
+                                    note: note.text.trim(),
+                                    point: resolvedPoint,
+                                  ),
+                                );
+                                if (saved != null && mounted) {
+                                  setState(() => targetDay.items.add(saved!));
+                                }
+                              } else if (oldDay != null) {
+                                saved = await _runBackendMutation(
+                                  () => widget.backend.updateItem(
+                                    itineraryId,
+                                    oldDay!.id,
+                                    item.id,
+                                    targetDayId: targetDay.id,
+                                    time: _formatTimeOfDay(selectedTime),
+                                    place: place.text.trim(),
+                                    activity: activity.text.trim(),
+                                    note: note.text.trim(),
+                                    point: resolvedPoint,
+                                  ),
+                                );
+                                if (saved != null && mounted) {
+                                  setState(() {
+                                    oldDay!.items.remove(item);
+                                    targetDay.items.add(saved!);
+                                  });
+                                }
+                              }
+                              if (saved == null || !context.mounted) {
+                                return;
+                              }
+                              Navigator.pop(context);
+                            },
                       icon: const Icon(Icons.save_outlined),
                       label: Text(isNew ? 'Add Item' : 'Save Item'),
                     ),
@@ -1157,9 +2475,119 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     );
   }
 
+  Future<ItineraryItem?> _createItem(
+    int selectedDayIndex, {
+    required String time,
+    required String place,
+    required String activity,
+    required String note,
+    LatLng? point,
+  }) async {
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return null;
+    }
+    final targetDay = _repository.itineraryDays[selectedDayIndex];
+    final item = await _runBackendMutation(
+      () => widget.backend.addItem(
+        itineraryId,
+        targetDay.id,
+        time: time,
+        place: place,
+        activity: activity,
+        note: note,
+        point: point,
+      ),
+    );
+    if (item != null && mounted) {
+      setState(() => targetDay.items.add(item));
+    }
+    return item;
+  }
+
+  Future<void> _saveActivePlan() async {
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return;
+    }
+    final saved = await _runBackendCommand(
+      () => widget.backend.savePlan(itineraryId),
+    );
+    if (saved) {
+      _toast('Plan saved to backend');
+    }
+  }
+
+  Future<void> _removeSavedTrip(SavedTrip trip) async {
+    final deleted = await _runBackendCommand(
+      () => widget.backend.deleteSavedTrip(trip.id),
+    );
+    if (!deleted || !mounted) {
+      return;
+    }
+    setState(() {
+      _repository.savedTrips.removeWhere((item) => item.id == trip.id);
+    });
+    _toast('Removed from backend');
+  }
+
+  Future<T?> _runBackendMutation<T>(Future<T> Function() action) async {
+    if (mounted) {
+      setState(() => _syncing = true);
+    }
+    try {
+      return await action();
+    } catch (error) {
+      if (mounted) {
+        _toast('Backend sync failed: $error');
+      }
+      return null;
+    } finally {
+      if (mounted) {
+        setState(() => _syncing = false);
+      }
+    }
+  }
+
+  Future<bool> _runBackendCommand(Future<void> Function() action) async {
+    if (mounted) {
+      setState(() => _syncing = true);
+    }
+    try {
+      await action();
+      return true;
+    } catch (error) {
+      if (mounted) {
+        _toast('Backend sync failed: $error');
+      }
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() => _syncing = false);
+      }
+    }
+  }
+
   String? _required(String? value) {
     if (value == null || value.trim().isEmpty) {
       return 'Required';
+    }
+    return null;
+  }
+
+  LatLng? _pointForPlaceName(String placeName) {
+    final normalized = placeName.trim().toLowerCase();
+    for (final place in _repository.mapPlaces) {
+      if (place.name.toLowerCase() == normalized) {
+        return place.point;
+      }
+    }
+    for (final destination in _repository.destinations) {
+      if (destination.name.toLowerCase() == normalized) {
+        return destination.point;
+      }
     }
     return null;
   }
@@ -1169,24 +2597,40 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete item?'),
-        content: const Text(
-          'This prevents accidental deletion while editing a trip timeline.',
-        ),
+        content:
+            const Text('This removes the item from the backend itinerary.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              setState(() {
-                for (final day in widget.repository.itineraryDays) {
-                  if (day.items.remove(item)) {
-                    break;
-                  }
+            onPressed: () async {
+              ItineraryDay? targetDay;
+              for (final day in _repository.itineraryDays) {
+                if (day.items.contains(item)) {
+                  targetDay = day;
+                  break;
                 }
-              });
-              Navigator.pop(context);
+              }
+              final itineraryId = _repository.activeItineraryId;
+              if (targetDay == null || itineraryId == null) {
+                Navigator.pop(context);
+                return;
+              }
+              final deleted = await _runBackendCommand(
+                () => widget.backend.deleteItem(
+                  itineraryId,
+                  targetDay!.id,
+                  item.id,
+                ),
+              );
+              if (deleted && mounted) {
+                setState(() => targetDay!.items.remove(item));
+              }
+              if (context.mounted) {
+                Navigator.pop(context);
+              }
             },
             child: const Text('Delete'),
           ),
@@ -1246,6 +2690,8 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   }
 
   void _showFeedbackSheet() {
+    final category = TextEditingController();
+    final description = TextEditingController();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1260,32 +2706,42 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
               Text('Contact / Feedback',
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 16),
-              const TextField(
-                decoration: InputDecoration(
+              TextField(
+                controller: category,
+                decoration: const InputDecoration(
                   labelText: 'Issue category',
                   filled: true,
                 ),
               ),
               const SizedBox(height: 12),
-              const TextField(
-                decoration: InputDecoration(
+              TextField(
+                controller: description,
+                decoration: const InputDecoration(
                   labelText: 'Description',
                   filled: true,
                 ),
                 maxLines: 3,
               ),
               const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: () => _toast('Optional screenshot placeholder'),
-                icon: const Icon(Icons.image_outlined),
-                label: const Text('Screenshot Placeholder'),
-              ),
-              const SizedBox(height: 8),
               FilledButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _toast('Feedback queued locally');
-                },
+                onPressed: _syncing
+                    ? null
+                    : () async {
+                        final ok = await _runBackendCommand(
+                          () => widget.backend.submitFeedback(
+                            userId: widget.user.id,
+                            category: category.text.trim().isEmpty
+                                ? 'general'
+                                : category.text.trim(),
+                            description: description.text.trim(),
+                          ),
+                        );
+                        if (!ok || !context.mounted) {
+                          return;
+                        }
+                        Navigator.pop(context);
+                        _toast('Feedback submitted to backend');
+                      },
                 icon: const Icon(Icons.send_outlined),
                 label: const Text('Submit'),
               ),
@@ -1293,41 +2749,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           ),
         );
       },
-    );
-  }
-
-  void _showOnboarding() {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => _SheetPadding(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Discover | Plan | Map',
-                style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 12),
-            const _InfoTile(
-              icon: Icons.search,
-              text:
-                  'Discover: search cities, attractions, or travel themes from Home.',
-            ),
-            const SizedBox(height: 8),
-            const _InfoTile(
-              icon: Icons.list_alt_outlined,
-              text:
-                  'Plan: create a timeline with dates, places, activities, notes, and status feedback.',
-            ),
-            const SizedBox(height: 8),
-            const _InfoTile(
-              icon: Icons.map_outlined,
-              text:
-                  'Map: tap categorized markers to add places while keeping spatial context.',
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -1350,7 +2771,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                 hintText: 'Search FAQ',
               ),
               const SizedBox(height: 12),
-              for (final faq in widget.repository.supportFaqs) ...[
+              for (final faq in TravelDataRepository.supportFaqs) ...[
                 _InfoTile(icon: Icons.help_outline, text: faq),
                 const SizedBox(height: 8),
               ],
@@ -1384,126 +2805,503 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   }
 }
 
+TimeOfDay _parseTimeOfDay(String? value) {
+  final text = value?.trim();
+  if (text == null || text.isEmpty) {
+    final now = DateTime.now();
+    return TimeOfDay(hour: now.hour, minute: now.minute);
+  }
+  final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(text);
+  if (match == null) {
+    return const TimeOfDay(hour: 9, minute: 0);
+  }
+  final hour = int.tryParse(match.group(1) ?? '') ?? 9;
+  final minute = int.tryParse(match.group(2) ?? '') ?? 0;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return const TimeOfDay(hour: 9, minute: 0);
+  }
+  return TimeOfDay(hour: hour, minute: minute);
+}
+
+String _formatTimeOfDay(TimeOfDay value) {
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
+class _TimePickerField extends StatelessWidget {
+  const _TimePickerField({
+    required this.value,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final TimeOfDay value;
+  final String label;
+  final ValueChanged<TimeOfDay> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: value,
+          builder: (context, child) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                alwaysUse24HourFormat: true,
+              ),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
+        );
+        if (picked != null) {
+          onChanged(picked);
+        }
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          filled: true,
+          prefixIcon: const Icon(Icons.schedule_outlined),
+        ),
+        child: Text(_formatTimeOfDay(value)),
+      ),
+    );
+  }
+}
+
+class _BackendLoadingPanel extends StatelessWidget {
+  const _BackendLoadingPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: SizedBox(
+        width: 56,
+        height: 56,
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+}
+
+class _AppHeader extends StatelessWidget {
+  const _AppHeader({
+    required this.title,
+    required this.subtitle,
+    required this.stopCount,
+    required this.dayCount,
+  });
+
+  final String title;
+  final String subtitle;
+  final int stopCount;
+  final int dayCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 420;
+        return Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.travel_explore,
+                color: scheme.onPrimaryContainer,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Wayfare',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  if (!compact)
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                ],
+              ),
+            ),
+            if (!compact) ...[
+              const SizedBox(width: 10),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: scheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$dayCount days | $stopCount stops',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSecondaryContainer,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MetricPill extends StatelessWidget {
+  const _MetricPill({
+    required this.icon,
+    required this.label,
+    this.filled = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: filled
+            ? scheme.primaryContainer
+            : scheme.surfaceContainerHighest.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: filled ? scheme.onPrimaryContainer : scheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: filled
+                      ? scheme.onPrimaryContainer
+                      : scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileMetricCard extends StatelessWidget {
+  const _ProfileMetricCard({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Card.filled(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.62),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: scheme.primary),
+              const SizedBox(height: 10),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BackendErrorPanel extends StatelessWidget {
+  const _BackendErrorPanel({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Card.outlined(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Backend connection required',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(message),
+                  const SizedBox(height: 12),
+                  const Text(
+                      'Start the backend from backend/: dart run bin/server.dart'),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _HomeScreen extends StatefulWidget {
   const _HomeScreen({
     required this.repository,
     required this.onOpenMap,
-    required this.onOpenSaved,
-    required this.onCreateItinerary,
-    required this.onDestinationDetail,
-    required this.onAddDestination,
-    required this.onShowInfo,
+    required this.onSearch,
+    required this.onAddSearchResult,
+    required this.onCopyTemplate,
   });
 
-  final MockTravelRepository repository;
+  final TravelDataRepository repository;
   final VoidCallback onOpenMap;
-  final VoidCallback onOpenSaved;
-  final VoidCallback onCreateItinerary;
-  final ValueChanged<Destination> onDestinationDetail;
-  final ValueChanged<Destination> onAddDestination;
-  final void Function(String title, String message) onShowInfo;
+  final Future<List<TravelSearchResult>> Function(String query) onSearch;
+  final ValueChanged<TravelSearchResult> onAddSearchResult;
+  final ValueChanged<CityWalkTemplate> onCopyTemplate;
 
   @override
   State<_HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<_HomeScreen> {
-  final selectedFilters = <String>{'Weekend Trip'};
+  final _searchController = TextEditingController();
+  List<TravelSearchResult> _searchResults = [];
+  var _searched = false;
+  var _searching = false;
+  String? _searchError;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _runSearch() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      setState(() {
+        _searched = false;
+        _searchResults = [];
+        _searchError = null;
+      });
+      return;
+    }
+    setState(() {
+      _searching = true;
+      _searched = true;
+      _searchError = null;
+    });
+    try {
+      final results = await widget.onSearch(query);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _searchResults = results);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _searchError = error.toString();
+        _searchResults = [];
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _searching = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
-        SearchBar(
-          leading: const Icon(Icons.search),
-          hintText: 'Search city, attraction, or travel theme',
-          trailing: [
-            IconButton(
-              tooltip: 'Filters',
-              icon: const Icon(Icons.tune),
-              onPressed: () => widget.onShowInfo(
-                'Filters',
-                'Weekend Trip, City Break, Nature, Food, Culture, Family, and Budget Friendly filters are available.',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
         _TravelHeroPanel(
-          onOpenSaved: widget.onOpenSaved,
-          onOpenMap: widget.onOpenMap,
-          onCreateItinerary: widget.onCreateItinerary,
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.icon(
-              onPressed: widget.onCreateItinerary,
-              icon: const Icon(Icons.add),
-              label: const Text('Create New Itinerary'),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: widget.onOpenSaved,
-              icon: const Icon(Icons.list_alt_outlined),
-              label: const Text('Upcoming Trip'),
-            ),
-            OutlinedButton.icon(
-              onPressed: widget.onOpenMap,
-              icon: const Icon(Icons.map_outlined),
-              label: const Text('Explore Map'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final filter in widget.repository.filters)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(filter),
-                    selected: selectedFilters.contains(filter),
-                    onSelected: (selected) {
-                      setState(() {
-                        selected
-                            ? selectedFilters.add(filter)
-                            : selectedFilters.remove(filter);
-                      });
-                    },
-                  ),
-                ),
-            ],
-          ),
+          repository: widget.repository,
         ),
         const SizedBox(height: 16),
         const _SectionHeader(
-          title: 'Recommended for You',
-          action: 'Rule-based suggestions',
+          title: 'Find Places',
+          action: 'AMap search',
         ),
-        const SizedBox(height: 12),
-        for (final destination in widget.repository.destinations) ...[
-          _DestinationCard(
-            destination: destination,
-            onDetail: () => widget.onDestinationDetail(destination),
-            onSave: () =>
-                widget.onShowInfo('Saved', '${destination.name} saved.'),
-            onAdd: () => widget.onAddDestination(destination),
-          ),
-          const SizedBox(height: 12),
+        const SizedBox(height: 10),
+        SearchQueryField(
+          controller: _searchController,
+          enabled: !_searching,
+          onSubmitted: (_) => _runSearch(),
+          onSearch: _runSearch,
+        ),
+        if (_searching) ...[
+          const SizedBox(height: 8),
+          const LinearProgressIndicator(),
         ],
-        const SizedBox(height: 8),
+        if (_searched) ...[
+          const SizedBox(height: 12),
+          _SearchResultsPanel(
+            results: _searchResults,
+            error: _searchError,
+            onAdd: widget.onAddSearchResult,
+            onOpenMap: widget.onOpenMap,
+          ),
+        ],
+        const SizedBox(height: 16),
         const _SectionHeader(
-          title: 'Planning Guides',
-          action: 'Help / How to Start',
+          title: 'System CityWalks',
+          action: 'Copy to use',
         ),
-        const SizedBox(height: 12),
-        for (final guide in widget.repository.guideCards) ...[
-          _InfoTile(icon: Icons.help_outline, text: guide),
+        const SizedBox(height: 10),
+        for (final template in _cityWalkTemplates) ...[
+          _CityWalkTemplateCard(
+            template: template,
+            onCopy: () => widget.onCopyTemplate(template),
+          ),
+          const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _SearchResultsPanel extends StatelessWidget {
+  const _SearchResultsPanel({
+    required this.results,
+    required this.error,
+    required this.onAdd,
+    required this.onOpenMap,
+  });
+
+  final List<TravelSearchResult> results;
+  final String? error;
+  final ValueChanged<TravelSearchResult> onAdd;
+  final VoidCallback onOpenMap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final errorText = error;
+    if (errorText != null) {
+      return Card.outlined(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Text('Search failed: $errorText'),
+        ),
+      );
+    }
+    if (results.isEmpty) {
+      return Card.outlined(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Icon(Icons.map_outlined, color: scheme.primary),
+              const SizedBox(width: 12),
+              const Expanded(
+                child:
+                    Text('No matching scenic spot. Use map pick mode instead.'),
+              ),
+              TextButton.icon(
+                onPressed: onOpenMap,
+                icon: const Icon(Icons.add_location_alt_outlined),
+                label: const Text('Map'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionHeader(
+          title: 'Search Results',
+          action: '${results.length} results',
+        ),
+        const SizedBox(height: 8),
+        for (final result in results.take(8)) ...[
+          _SearchResultCard(
+            result: result,
+            onAdd: () => onAdd(result),
+          ),
           const SizedBox(height: 8),
         ],
       ],
@@ -1511,81 +3309,197 @@ class _HomeScreenState extends State<_HomeScreen> {
   }
 }
 
-class _NavigationDrawer extends StatelessWidget {
-  const _NavigationDrawer({
-    required this.selectedTab,
-    required this.onSelected,
-    required this.onHelp,
+class _SearchResultCard extends StatelessWidget {
+  const _SearchResultCard({
+    required this.result,
+    required this.onAdd,
   });
 
-  final AppTab selectedTab;
-  final ValueChanged<AppTab> onSelected;
-  final VoidCallback onHelp;
+  final TravelSearchResult result;
+  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Drawer(
-      child: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: BoxDecoration(color: scheme.primaryContainer),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  CircleAvatar(
-                    backgroundColor: scheme.primary,
-                    foregroundColor: scheme.onPrimary,
-                    child: const Icon(Icons.route_outlined),
-                  ),
-                  const SizedBox(height: 12),
-                  Text('Wayfare',
-                      style: Theme.of(context).textTheme.headlineSmall),
-                  Text(
-                    'Discover, plan, save, and map trips',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
+    final shouldShowLevel =
+        result.level.isNotEmpty && result.level.toLowerCase() != 'amap';
+    return Card.outlined(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 480;
+            final details = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        result.name,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                      ),
+                    ),
+                    if (shouldShowLevel)
+                      Chip(
+                        visualDensity: VisualDensity.compact,
+                        label: Text(result.level),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _cleanSearchSubtitle(result.subtitle),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  result.intro,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            );
+            final addButton = Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: onAdd,
+                icon: const Icon(Icons.add),
+                label: const Text('Quick Add'),
               ),
+            );
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  details,
+                  const SizedBox(height: 12),
+                  addButton,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: details),
+                const SizedBox(width: 12),
+                addButton,
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _CityWalkTemplateCard extends StatelessWidget {
+  const _CityWalkTemplateCard({
+    required this.template,
+    required this.onCopy,
+  });
+
+  final CityWalkTemplate template;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final previewStops = template.stops.take(3).toList(growable: false);
+    return Card.filled(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.52),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.directions_walk,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        template.title,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        template.summary,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.tonalIcon(
+                  onPressed: onCopy,
+                  icon: const Icon(Icons.content_copy),
+                  label: const Text('Copy'),
+                ),
+              ],
             ),
-            _DrawerDestination(
-              icon: Icons.home_outlined,
-              label: 'Home Dashboard',
-              selected: selectedTab == AppTab.home,
-              onTap: () => onSelected(AppTab.home),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _MetricPill(
+                  icon: Icons.location_city_outlined,
+                  label: template.city,
+                  filled: true,
+                ),
+                _MetricPill(
+                  icon: Icons.schedule_outlined,
+                  label: template.duration,
+                ),
+                _MetricPill(
+                  icon: Icons.route_outlined,
+                  label: '${template.stops.length} stops',
+                ),
+              ],
             ),
-            _DrawerDestination(
-              icon: Icons.map_outlined,
-              label: 'Explore Map',
-              selected: selectedTab == AppTab.explore,
-              onTap: () => onSelected(AppTab.explore),
-            ),
-            _DrawerDestination(
-              icon: Icons.list_alt_outlined,
-              label: 'Itinerary Timeline',
-              selected: selectedTab == AppTab.itinerary,
-              onTap: () => onSelected(AppTab.itinerary),
-            ),
-            _DrawerDestination(
-              icon: Icons.bookmark_border,
-              label: 'Saved Trips',
-              selected: selectedTab == AppTab.saved,
-              onTap: () => onSelected(AppTab.saved),
-            ),
-            _DrawerDestination(
-              icon: Icons.person_outline,
-              label: 'Profile & Settings',
-              selected: selectedTab == AppTab.profile,
-              onTap: () => onSelected(AppTab.profile),
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.help_outline),
-              title: const Text('Help Center'),
-              onTap: onHelp,
+            const SizedBox(height: 12),
+            Divider(color: scheme.outlineVariant),
+            const SizedBox(height: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var index = 0; index < previewStops.length; index++) ...[
+                  _CityWalkStopPreview(
+                    index: index + 1,
+                    stop: previewStops[index],
+                  ),
+                  if (index != previewStops.length - 1)
+                    const SizedBox(height: 8),
+                ],
+              ],
             ),
           ],
         ),
@@ -1594,22 +3508,158 @@ class _NavigationDrawer extends StatelessWidget {
   }
 }
 
-class _TravelHeroPanel extends StatelessWidget {
-  const _TravelHeroPanel({
-    required this.onOpenSaved,
-    required this.onOpenMap,
-    required this.onCreateItinerary,
+class _CityWalkStopPreview extends StatelessWidget {
+  const _CityWalkStopPreview({
+    required this.index,
+    required this.stop,
   });
 
-  final VoidCallback onOpenSaved;
-  final VoidCallback onOpenMap;
-  final VoidCallback onCreateItinerary;
+  final int index;
+  final CityWalkStop stop;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: scheme.secondaryContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '$index',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: scheme.onSecondaryContainer,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                stop.place,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              Text(
+                '${stop.time} | ${stop.activity}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _cleanSearchSubtitle(String value) {
+  return value
+      .replaceAll(' 路 ', ' ')
+      .replaceAll(' 璺?', ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+class _AdaptiveNavigationRail extends StatelessWidget {
+  const _AdaptiveNavigationRail({
+    required this.selectedTab,
+    required this.onSelected,
+    required this.user,
+  });
+
+  final AppTab selectedTab;
+  final ValueChanged<AppTab> onSelected;
+  final AppUser user;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return NavigationRail(
+      selectedIndex: selectedTab.index,
+      onDestinationSelected: (index) => onSelected(AppTab.values[index]),
+      labelType: NavigationRailLabelType.all,
+      minWidth: 92,
+      leading: Padding(
+        padding: const EdgeInsets.only(top: 16, bottom: 18),
+        child: Badge(
+          label: const Text('Live'),
+          child: CircleAvatar(
+            backgroundColor: scheme.primaryContainer,
+            foregroundColor: scheme.onPrimaryContainer,
+            child: Text(user.initials),
+          ),
+        ),
+      ),
+      destinations: const [
+        NavigationRailDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home),
+          label: Text('Home'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.explore_outlined),
+          selectedIcon: Icon(Icons.explore),
+          label: Text('Explore'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.list_alt_outlined),
+          selectedIcon: Icon(Icons.list_alt),
+          label: Text('Itinerary'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.bookmark_border),
+          selectedIcon: Icon(Icons.bookmark),
+          label: Text('Saved'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.person_outline),
+          selectedIcon: Icon(Icons.person),
+          label: Text('Profile'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TravelHeroPanel extends StatelessWidget {
+  const _TravelHeroPanel({
+    required this.repository,
+  });
+
+  final TravelDataRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final itemCount = repository.itineraryDays
+        .fold<int>(0, (sum, day) => sum + day.items.length);
+    final dayCount = repository.itineraryDays.length;
+    ItineraryItem? nextItem;
+    String? nextDay;
+    for (final day in repository.itineraryDays) {
+      if (day.items.isNotEmpty) {
+        nextItem = day.items.first;
+        nextDay = day.title;
+        break;
+      }
+    }
     return Card.filled(
-      color: scheme.tertiaryContainer,
+      color: scheme.primaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
@@ -1623,287 +3673,91 @@ class _TravelHeroPanel extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Weekend plan is taking shape',
+                        repository.activeItineraryTitle,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.w800,
-                              color: scheme.onTertiaryContainer,
+                              color: scheme.onPrimaryContainer,
                             ),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '5 planned stops, 2 days, Hangzhou route context ready.',
+                        itemCount == 0
+                            ? 'No planned stops yet. Copy a CityWalk or add a place from search.'
+                            : 'Synced with backend and ready for route planning.',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: scheme.onTertiaryContainer,
+                              color: scheme.onPrimaryContainer,
                             ),
                       ),
                     ],
                   ),
                 ),
                 CircleAvatar(
-                  backgroundColor: scheme.tertiary,
-                  foregroundColor: scheme.onTertiary,
-                  child: const Icon(Icons.travel_explore),
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                  child: const Icon(Icons.route_outlined),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                FilledButton.icon(
-                  onPressed: onCreateItinerary,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Plan'),
+                _MetricPill(
+                  icon: Icons.calendar_today_outlined,
+                  label: '$dayCount days',
                 ),
-                FilledButton.tonalIcon(
-                  onPressed: onOpenMap,
-                  icon: const Icon(Icons.map_outlined),
-                  label: const Text('Map'),
+                _MetricPill(
+                  icon: Icons.flag_outlined,
+                  label: '$itemCount stops',
                 ),
-                OutlinedButton.icon(
-                  onPressed: onOpenSaved,
-                  icon: const Icon(Icons.bookmark_border),
-                  label: const Text('Saved'),
+                _MetricPill(
+                  icon: Icons.bookmark_border,
+                  label: '${repository.savedTrips.length} saved',
                 ),
               ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DestinationVisual extends StatelessWidget {
-  const _DestinationVisual({
-    required this.tone,
-    required this.title,
-    required this.icon,
-  });
-
-  final Color tone;
-  final String title;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final onTone = _onColor(tone);
-    return SizedBox(
-      height: 132,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              tone,
-              Color.lerp(tone, Colors.black, 0.22)!,
-              Color.lerp(tone, Colors.white, 0.16)!,
-            ],
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -12,
-              top: 12,
-              child:
-                  Icon(icon, size: 118, color: onTone.withValues(alpha: 0.18)),
-            ),
-            Positioned(
-              left: 18,
-              right: 18,
-              bottom: 18,
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: onTone.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: onTone.withValues(alpha: 0.24)),
-                    ),
-                    child: Icon(icon, color: onTone),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: onTone,
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 22,
-              right: 88,
-              top: 28,
-              child: CustomPaint(
-                size: const Size(double.infinity, 34),
-                painter:
-                    _RouteLinePainter(color: onTone.withValues(alpha: 0.38)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RouteLinePainter extends CustomPainter {
-  const _RouteLinePainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round;
-    final path = Path()
-      ..moveTo(0, size.height * 0.75)
-      ..cubicTo(
-        size.width * 0.22,
-        0,
-        size.width * 0.48,
-        size.height,
-        size.width * 0.72,
-        size.height * 0.24,
-      )
-      ..quadraticBezierTo(
-          size.width * 0.86, -2, size.width, size.height * 0.45);
-    canvas.drawPath(path, paint);
-    for (final x in [0.0, size.width * 0.48, size.width]) {
-      canvas.drawCircle(
-          Offset(x, x == 0 ? size.height * 0.75 : size.height * 0.45),
-          3,
-          paint..style = PaintingStyle.fill);
-      paint.style = PaintingStyle.stroke;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RouteLinePainter oldDelegate) {
-    return oldDelegate.color != color;
-  }
-}
-
-class _DrawerDestination extends StatelessWidget {
-  const _DrawerDestination({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(label),
-      selected: selected,
-      selectedTileColor: Theme.of(context).colorScheme.secondaryContainer,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      onTap: onTap,
-    );
-  }
-}
-
-class _DestinationCard extends StatelessWidget {
-  const _DestinationCard({
-    required this.destination,
-    required this.onDetail,
-    required this.onSave,
-    required this.onAdd,
-  });
-
-  final Destination destination;
-  final VoidCallback onDetail;
-  final VoidCallback onSave;
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card.filled(
-      color: destination.priority
-          ? scheme.primaryContainer
-          : scheme.surfaceContainer,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _DestinationVisual(
-            tone: destination.tone,
-            title: destination.theme,
-            icon: destination.theme.contains('Food')
-                ? Icons.restaurant_menu_outlined
-                : destination.theme.contains('City')
-                    ? Icons.location_city_outlined
-                    : destination.theme.contains('Culture')
-                        ? Icons.temple_buddhist_outlined
-                        : Icons.landscape_outlined,
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            if (nextItem != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: scheme.surface.withValues(alpha: 0.62),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
                   children: [
+                    Icon(Icons.next_plan_outlined, color: scheme.primary),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        destination.name,
-                        style: Theme.of(context).textTheme.titleLarge,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$nextDay | ${nextItem.time}',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                          Text(
+                            nextItem.place,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyLarge
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ],
                       ),
                     ),
-                    Text(destination.duration),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(destination.summary),
-                const SizedBox(height: 10),
-                Chip(label: Text(destination.reason)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: onDetail,
-                      icon: const Icon(Icons.search),
-                      label: const Text('View Detail'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: onSave,
-                      icon: const Icon(Icons.bookmark_border),
-                      label: const Text('Save'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: onAdd,
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1914,12 +3768,20 @@ enum _MapMode { explore, planned }
 class _ExploreScreen extends StatefulWidget {
   const _ExploreScreen({
     required this.places,
+    required this.itineraryDays,
     required this.onPlaceSelected,
+    required this.onMapPointPicked,
+    required this.onSearch,
+    required this.onAddSearchResult,
     required this.onRetry,
   });
 
   final List<MapPlace> places;
+  final List<ItineraryDay> itineraryDays;
   final ValueChanged<MapPlace> onPlaceSelected;
+  final Future<bool> Function(AmapPickResult pick) onMapPointPicked;
+  final Future<List<TravelSearchResult>> Function(String query) onSearch;
+  final ValueChanged<TravelSearchResult> onAddSearchResult;
   final VoidCallback onRetry;
 
   @override
@@ -1928,35 +3790,113 @@ class _ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<_ExploreScreen> {
   _MapMode _mode = _MapMode.explore;
+  final _searchController = TextEditingController();
+  List<TravelSearchResult> _searchResults = [];
+  var _searched = false;
+  var _searching = false;
+  String? _searchError;
+  var _pickMode = false;
+  var _mapInputLocked = false;
+  LatLng? _selectedMapPoint;
+  AmapPickResult? _selectedMapPick;
   late final Set<String> _selectedCategories =
-      widget.places.map((place) => place.category).toSet();
+      _allPlaces.map((place) => place.category).toSet();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<MapPlace> get _scheduledPlaces {
+    final items = <MapPlace>[];
+    for (var dayIndex = 0; dayIndex < widget.itineraryDays.length; dayIndex++) {
+      final day = widget.itineraryDays[dayIndex];
+      for (final item in day.items) {
+        final point = item.point;
+        if (point == null) {
+          continue;
+        }
+        items.add(
+          MapPlace(
+            id: 'scheduled-${item.id}',
+            name: item.place,
+            category: 'Day ${dayIndex + 1}',
+            distance: day.title,
+            description: '${item.time} | ${item.activity}',
+            rating: item.status,
+            point: point,
+            icon: Icons.event_available_outlined,
+          ),
+        );
+      }
+    }
+    return items;
+  }
+
+  List<MapPlace> get _allPlaces {
+    return [
+      ...widget.places,
+      ..._searchPlaces,
+      ..._scheduledPlaces,
+    ];
+  }
+
+  List<MapPlace> get _searchPlaces {
+    return _searchResults
+        .map(
+          (result) => MapPlace(
+            id: 'search-${result.id}',
+            name: result.name,
+            category: 'Search',
+            distance: _cleanSearchSubtitle(result.subtitle),
+            description: result.intro,
+            rating: result.level.toLowerCase() == 'amap' ? '' : result.level,
+            point: result.point,
+            icon: Icons.search,
+          ),
+        )
+        .toList(growable: false);
+  }
 
   List<MapPlace> get _visiblePlaces {
-    return widget.places
-        .where((place) => _selectedCategories.contains(place.category))
+    final places = _mode == _MapMode.planned ? _scheduledPlaces : _allPlaces;
+    return places
+        .where((place) =>
+            _selectedCategories.contains(place.category) ||
+            place.category.startsWith('Day '))
         .toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final categories = widget.places.map((place) => place.category).toSet();
+    final categories = _allPlaces.map((place) => place.category).toSet();
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: SearchBar(
-            leading: const Icon(Icons.search),
-            hintText: 'Search map places or planned stops',
-            trailing: [
-              IconButton(
-                tooltip: 'Refresh local map data',
-                onPressed: widget.onRetry,
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
+          child: SearchQueryField(
+            controller: _searchController,
+            enabled: !_searching,
+            onSubmitted: (_) => _runSearch(),
+            onSearch: _runSearch,
           ),
         ),
+        if (_searching) const LinearProgressIndicator(),
+        if (_searched)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 230),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: _SearchResultsPanel(
+                results: _searchResults,
+                error: _searchError,
+                onAdd: widget.onAddSearchResult,
+                onOpenMap: () => setState(() => _pickMode = true),
+              ),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
@@ -2004,67 +3944,124 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                 ),
                 const SizedBox(width: 8),
               ],
+              FilterChip(
+                avatar: const Icon(Icons.add_location_alt_outlined, size: 18),
+                label: const Text('Pick point mode'),
+                selected: _pickMode,
+                onSelected: (selected) {
+                  setState(() => _pickMode = selected);
+                },
+              ),
             ],
           ),
         ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: scheme.outlineVariant),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Stack(
-                  children: [
-                    _ChinaTravelMap(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                children: [
+                  if (_canShowWebAmap)
+                    AmapCanvas(
+                      jsKey: _amapJsKey,
+                      securityCode: _amapJsSecurityCode,
+                      markers: _webMarkers,
+                      routeSegments: _routeSegments,
+                      selectedPoint: _selectedMapPoint,
+                      pickMode: _pickMode,
+                      interactive: !_mapInputLocked,
+                      primaryColor: scheme.primary,
+                      onMarkerTapped: _handleWebMarkerTap,
+                      onPointPicked: (pick) {
+                        _handleWebMapTap(pick);
+                      },
+                    )
+                  else if (_canShowNativeAmap)
+                    AbsorbPointer(
+                      absorbing: _mapInputLocked,
+                      child: amap_map.AMapWidget(
+                        apiKey: const amap_base.AMapApiKey(
+                          androidKey: _amapAndroidKey,
+                          iosKey: _amapIosKey,
+                        ),
+                        privacyStatement: const amap_base.AMapPrivacyStatement(
+                          hasContains: true,
+                          hasShow: true,
+                          hasAgree: true,
+                        ),
+                        initialCameraPosition: const amap_map.CameraPosition(
+                          target: amap_base.LatLng(30.2431, 120.1508),
+                          zoom: 12,
+                        ),
+                        scaleEnabled: true,
+                        compassEnabled: true,
+                        touchPoiEnabled: true,
+                        onTap: _pickMode
+                            ? (point) {
+                                _handleAmapTap(point);
+                              }
+                            : null,
+                        markers: _markers,
+                        polylines: _polylines,
+                      ),
+                    )
+                  else
+                    _AmapSetupPanel(
+                      selectedPoint: _selectedMapPoint,
                       places: _visiblePlaces,
-                      mode: _mode,
-                      onPlaceSelected: widget.onPlaceSelected,
+                      message: _mapSetupMessage,
                     ),
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    right: 12,
+                    child: _MapStatusBar(
+                      mode: _mode,
+                      pickMode: _pickMode,
+                      visibleCount: _visiblePlaces.length,
+                      onRetry: widget.onRetry,
+                    ),
+                  ),
+                  if (_pickMode)
                     Positioned(
-                      top: 12,
                       left: 12,
                       right: 12,
-                      child: _MapStatusBar(
-                        mode: _mode,
-                        visibleCount: _visiblePlaces.length,
-                        onRetry: widget.onRetry,
-                      ),
-                    ),
-                    if (_visiblePlaces.isEmpty)
-                      Center(
-                        child: Card.filled(
-                          color: scheme.surface.withValues(alpha: 0.94),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.map_outlined, size: 32),
-                                const SizedBox(height: 8),
-                                const Text('No visible map markers'),
-                                const SizedBox(height: 8),
-                                FilledButton.tonal(
-                                  onPressed: () {
-                                    setState(() {
-                                      _selectedCategories
-                                        ..clear()
-                                        ..addAll(categories);
-                                    });
-                                  },
-                                  child: const Text('Reset filters'),
+                      bottom: 12,
+                      child: Card.filled(
+                        color: scheme.surface.withValues(alpha: 0.94),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Icon(Icons.add_location_alt_outlined,
+                                  color: scheme.primary),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _canShowAmap
+                                      ? 'Tap the AMap canvas to select a destination point.'
+                                      : _mapSetupMessage,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                  ],
-                ),
+                    ),
+                  if (!_pickMode && _selectedMapPick != null)
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      child: _SelectedMapPointBar(
+                        pick: _selectedMapPick!,
+                        busy: _mapInputLocked,
+                        onEdit: () => _openMapPickSheet(_selectedMapPick!),
+                        onClear: _clearSelectedMapPoint,
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -2072,16 +4069,445 @@ class _ExploreScreenState extends State<_ExploreScreen> {
       ],
     );
   }
+
+  Future<void> _runSearch() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      setState(() {
+        _searched = false;
+        _searchResults = [];
+        _searchError = null;
+      });
+      return;
+    }
+    setState(() {
+      _searched = true;
+      _searching = true;
+      _searchError = null;
+    });
+    try {
+      final results = await widget.onSearch(query);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _searchResults = results;
+        if (results.isNotEmpty) {
+          _selectedCategories.add('Search');
+        }
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _searchError = error.toString();
+        _searchResults = [];
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _searching = false);
+      }
+    }
+  }
+
+  bool get _canShowAmap {
+    return _canShowWebAmap || _canShowNativeAmap;
+  }
+
+  bool get _canShowWebAmap {
+    return kIsWeb && _amapJsKey.isNotEmpty && _amapJsSecurityCode.isNotEmpty;
+  }
+
+  bool get _canShowNativeAmap {
+    if (kIsWeb) {
+      return false;
+    }
+    final supportedPlatform = defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+    final hasKey = defaultTargetPlatform == TargetPlatform.android
+        ? _amapAndroidKey.isNotEmpty
+        : _amapIosKey.isNotEmpty;
+    return supportedPlatform && hasKey;
+  }
+
+  String get _mapSetupMessage {
+    if (kIsWeb) {
+      return 'AMap Web JS key is not configured. Build with --dart-define=AMAP_JS_KEY=your_js_key and --dart-define=AMAP_JS_SECURITY_CODE=your_security_code.';
+    }
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return 'AMap Android key is not configured. Build with --dart-define=AMAP_ANDROID_KEY=your_android_key for package com.idm.travelplanner.';
+    }
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return 'AMap iOS key is not configured. Build with --dart-define=AMAP_IOS_KEY=your_ios_key.';
+    }
+    return 'AMap is available on Web, Android, and iOS builds.';
+  }
+
+  List<AmapCanvasMarker> get _webMarkers {
+    return _visiblePlaces
+        .map(
+          (place) => AmapCanvasMarker(
+            id: place.id,
+            title: place.name,
+            subtitle: '${place.category} | ${place.description}',
+            category: place.category,
+            point: place.point,
+            color: _markerColor(place.category),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  List<AmapRouteSegment> get _routeSegments {
+    final segments = <AmapRouteSegment>[];
+    for (var dayIndex = 0; dayIndex < widget.itineraryDays.length; dayIndex++) {
+      final points = widget.itineraryDays[dayIndex].items
+          .map((item) => item.point)
+          .whereType<LatLng>()
+          .toList(growable: false);
+      if (points.length > 1) {
+        segments.add(
+          AmapRouteSegment(
+            points: points,
+            color: _dayColor(dayIndex),
+          ),
+        );
+      }
+    }
+    return segments;
+  }
+
+  Set<amap_map.Marker> get _markers {
+    final markers = <amap_map.Marker>{};
+    for (final place in _visiblePlaces) {
+      markers.add(
+        amap_map.Marker(
+          position: _toAmapLatLng(place.point),
+          icon: amap_map.BitmapDescriptor.defaultMarkerWithHue(
+            _markerHue(place.category),
+          ),
+          infoWindow: amap_map.InfoWindow(
+            title: place.name,
+            snippet: '${place.category} | ${place.description}',
+          ),
+          onTap: (_) => widget.onPlaceSelected(place),
+        ),
+      );
+    }
+    final selected = _selectedMapPoint;
+    if (selected != null) {
+      markers.add(
+        amap_map.Marker(
+          position: _toAmapLatLng(selected),
+          icon: amap_map.BitmapDescriptor.defaultMarkerWithHue(
+            amap_map.BitmapDescriptor.hueRose,
+          ),
+          draggable: true,
+          infoWindow: const amap_map.InfoWindow(
+            title: 'Selected point',
+            snippet: 'Drag or tap again to adjust before adding.',
+          ),
+          onDragEnd: (_, position) {
+            _handleAmapTap(position);
+          },
+        ),
+      );
+    }
+    return markers;
+  }
+
+  Set<amap_map.Polyline> get _polylines {
+    final lines = <amap_map.Polyline>{};
+    for (var dayIndex = 0; dayIndex < widget.itineraryDays.length; dayIndex++) {
+      final points = widget.itineraryDays[dayIndex].items
+          .map((item) => item.point)
+          .whereType<LatLng>()
+          .map(_toAmapLatLng)
+          .toList(growable: false);
+      if (points.length > 1) {
+        lines.add(
+          amap_map.Polyline(
+            points: points,
+            width: 8,
+            color: _dayColor(dayIndex),
+          ),
+        );
+      }
+    }
+    return lines;
+  }
+
+  void _handleAmapTap(amap_base.LatLng point) {
+    final selected = LatLng(point.latitude, point.longitude);
+    final pick = AmapPickResult(
+      point: selected,
+      name: 'Selected map point',
+    );
+    _openMapPickSheet(pick);
+  }
+
+  void _handleWebMapTap(AmapPickResult pick) {
+    _openMapPickSheet(pick);
+  }
+
+  Future<void> _openMapPickSheet(AmapPickResult pick) async {
+    setState(() {
+      _selectedMapPick = pick;
+      _selectedMapPoint = pick.point;
+      _pickMode = false;
+      _mapInputLocked = true;
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      return;
+    }
+    final added = await widget.onMapPointPicked(pick);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _mapInputLocked = false;
+      if (added) {
+        _selectedMapPick = null;
+        _selectedMapPoint = null;
+      }
+    });
+  }
+
+  void _clearSelectedMapPoint() {
+    setState(() {
+      _selectedMapPick = null;
+      _selectedMapPoint = null;
+      _mapInputLocked = false;
+    });
+  }
+
+  void _handleWebMarkerTap(String markerId) {
+    for (final place in _visiblePlaces) {
+      if (place.id == markerId) {
+        widget.onPlaceSelected(place);
+        return;
+      }
+    }
+  }
+
+  Color _markerColor(String category) {
+    final dayIndex = _dayIndexFromCategory(category);
+    if (dayIndex != null) {
+      return _dayColor(dayIndex);
+    }
+    switch (category) {
+      case 'Food':
+        return const Color(0xFFEA580C);
+      case 'Nature':
+        return const Color(0xFF16A34A);
+      case 'Transport':
+        return const Color(0xFF0284C7);
+      case 'Saved Place':
+        return const Color(0xFF7C3AED);
+      default:
+        return const Color(0xFF2563EB);
+    }
+  }
+
+  double _markerHue(String category) {
+    final dayIndex = _dayIndexFromCategory(category);
+    if (dayIndex != null) {
+      return _dayHue(dayIndex);
+    }
+    switch (category) {
+      case 'Food':
+        return amap_map.BitmapDescriptor.hueOrange;
+      case 'Nature':
+        return amap_map.BitmapDescriptor.hueGreen;
+      case 'Transport':
+        return amap_map.BitmapDescriptor.hueAzure;
+      case 'Saved Place':
+        return amap_map.BitmapDescriptor.hueViolet;
+      default:
+        return amap_map.BitmapDescriptor.hueBlue;
+    }
+  }
+}
+
+int? _dayIndexFromCategory(String category) {
+  if (!category.startsWith('Day ')) {
+    return null;
+  }
+  final number = int.tryParse(category.substring(4).trim());
+  if (number == null || number <= 0) {
+    return null;
+  }
+  return number - 1;
+}
+
+Color _dayColor(int dayIndex) {
+  const colors = [
+    Color(0xFF2563EB),
+    Color(0xFF16A34A),
+    Color(0xFFEA580C),
+    Color(0xFF7C3AED),
+    Color(0xFFDC2626),
+    Color(0xFF0891B2),
+    Color(0xFFCA8A04),
+  ];
+  return colors[dayIndex % colors.length];
+}
+
+double _dayHue(int dayIndex) {
+  const hues = [
+    amap_map.BitmapDescriptor.hueBlue,
+    amap_map.BitmapDescriptor.hueGreen,
+    amap_map.BitmapDescriptor.hueOrange,
+    amap_map.BitmapDescriptor.hueViolet,
+    amap_map.BitmapDescriptor.hueRed,
+    amap_map.BitmapDescriptor.hueAzure,
+    amap_map.BitmapDescriptor.hueYellow,
+  ];
+  return hues[dayIndex % hues.length];
+}
+
+class _AmapSetupPanel extends StatelessWidget {
+  const _AmapSetupPanel({
+    required this.selectedPoint,
+    required this.places,
+    required this.message,
+  });
+
+  final LatLng? selectedPoint;
+  final List<MapPlace> places;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 78, 18, 18),
+        children: [
+          Card.filled(
+            color: scheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.key_outlined, color: scheme.onErrorContainer),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: TextStyle(color: scheme.onErrorContainer),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (selectedPoint != null) ...[
+            const SizedBox(height: 12),
+            _InfoTile(
+              icon: Icons.add_location_alt_outlined,
+              text:
+                  'Selected: ${selectedPoint!.latitude.toStringAsFixed(6)}, ${selectedPoint!.longitude.toStringAsFixed(6)}',
+            ),
+          ],
+          const SizedBox(height: 12),
+          const _SectionHeader(
+              title: 'Current Map Markers', action: 'AMap data'),
+          const SizedBox(height: 10),
+          for (final place in places) ...[
+            _InfoTile(
+              icon: place.icon,
+              text: '${place.name} | ${place.category} | ${place.description}',
+            ),
+            const SizedBox(height: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectedMapPointBar extends StatelessWidget {
+  const _SelectedMapPointBar({
+    required this.pick,
+    required this.busy,
+    required this.onEdit,
+    required this.onClear,
+  });
+
+  final AmapPickResult pick;
+  final bool busy;
+  final VoidCallback onEdit;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final address = pick.address?.trim();
+    return Card.filled(
+      color: scheme.surface.withValues(alpha: 0.96),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+        child: Row(
+          children: [
+            Icon(Icons.add_location_alt_outlined, color: scheme.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    pick.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    address == null || address.isEmpty
+                        ? '${pick.point.latitude.toStringAsFixed(6)}, ${pick.point.longitude.toStringAsFixed(6)}'
+                        : address,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Edit selected point',
+              onPressed: busy ? null : onEdit,
+              icon: const Icon(Icons.edit_location_alt_outlined),
+            ),
+            IconButton(
+              tooltip: 'Clear selected point',
+              onPressed: busy ? null : onClear,
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _MapStatusBar extends StatelessWidget {
   const _MapStatusBar({
     required this.mode,
+    required this.pickMode,
     required this.visibleCount,
     required this.onRetry,
   });
 
   final _MapMode mode;
+  final bool pickMode;
   final int visibleCount;
   final VoidCallback onRetry;
 
@@ -2102,9 +4528,11 @@ class _MapStatusBar extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                mode == _MapMode.explore
-                    ? 'China itinerary map | drag, zoom, tap markers'
-                    : 'Planned route view | $visibleCount visible stops',
+                pickMode
+                    ? 'AMap point-pick mode | tap map to add itinerary'
+                    : mode == _MapMode.explore
+                        ? 'AMap exploration | drag and zoom normally'
+                        : 'Planned route view | $visibleCount visible stops',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelLarge,
@@ -2118,281 +4546,8 @@ class _MapStatusBar extends StatelessWidget {
   }
 }
 
-class _ChinaTravelMap extends StatelessWidget {
-  const _ChinaTravelMap({
-    required this.places,
-    required this.mode,
-    required this.onPlaceSelected,
-  });
-
-  final List<MapPlace> places;
-  final _MapMode mode;
-  final ValueChanged<MapPlace> onPlaceSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final size = Size(
-          math.max(620, constraints.maxWidth),
-          math.max(520, constraints.maxHeight),
-        );
-        return InteractiveViewer(
-          minScale: 1,
-          maxScale: 4,
-          boundaryMargin: const EdgeInsets.all(120),
-          child: SizedBox(
-            width: size.width,
-            height: size.height,
-            child: Stack(
-              children: [
-                CustomPaint(
-                  size: size,
-                  painter: _ChinaMapPainter(
-                    scheme: scheme,
-                    places: places,
-                    mode: mode,
-                  ),
-                ),
-                for (var index = 0; index < places.length; index++)
-                  _MapMarkerButton(
-                    place: places[index],
-                    offset: _projectChinaPoint(places[index].point, size) +
-                        _markerNudge(index),
-                    onTap: () => onPlaceSelected(places[index]),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _MapMarkerButton extends StatelessWidget {
-  const _MapMarkerButton({
-    required this.place,
-    required this.offset,
-    required this.onTap,
-  });
-
-  final MapPlace place;
-  final Offset offset;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Positioned(
-      left: offset.dx - 24,
-      top: offset.dy - 24,
-      child: Tooltip(
-        message: place.name,
-        child: FilledButton.tonal(
-          style: FilledButton.styleFrom(
-            fixedSize: const Size(48, 48),
-            padding: EdgeInsets.zero,
-            shape: const CircleBorder(),
-            backgroundColor: scheme.secondaryContainer,
-            foregroundColor: scheme.onSecondaryContainer,
-          ),
-          onPressed: onTap,
-          child: Icon(place.icon, size: 22),
-        ),
-      ),
-    );
-  }
-}
-
-class _ChinaMapPainter extends CustomPainter {
-  const _ChinaMapPainter({
-    required this.scheme,
-    required this.places,
-    required this.mode,
-  });
-
-  final ColorScheme scheme;
-  final List<MapPlace> places;
-  final _MapMode mode;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final waterPaint = Paint()
-      ..color = scheme.primaryContainer.withValues(alpha: 0.28);
-    canvas.drawRect(Offset.zero & size, waterPaint);
-
-    final landPath = Path()
-      ..moveTo(size.width * 0.16, size.height * 0.29)
-      ..lineTo(size.width * 0.25, size.height * 0.18)
-      ..lineTo(size.width * 0.38, size.height * 0.16)
-      ..lineTo(size.width * 0.48, size.height * 0.22)
-      ..lineTo(size.width * 0.60, size.height * 0.18)
-      ..lineTo(size.width * 0.76, size.height * 0.26)
-      ..lineTo(size.width * 0.86, size.height * 0.40)
-      ..lineTo(size.width * 0.82, size.height * 0.52)
-      ..lineTo(size.width * 0.72, size.height * 0.56)
-      ..lineTo(size.width * 0.69, size.height * 0.70)
-      ..lineTo(size.width * 0.58, size.height * 0.78)
-      ..lineTo(size.width * 0.45, size.height * 0.73)
-      ..lineTo(size.width * 0.35, size.height * 0.83)
-      ..lineTo(size.width * 0.24, size.height * 0.72)
-      ..lineTo(size.width * 0.19, size.height * 0.56)
-      ..lineTo(size.width * 0.09, size.height * 0.49)
-      ..lineTo(size.width * 0.12, size.height * 0.37)
-      ..close();
-
-    final landFill = Paint()..color = scheme.surface;
-    final landStroke = Paint()
-      ..color = scheme.outline.withValues(alpha: 0.60)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    canvas.drawPath(landPath, landFill);
-    canvas.drawPath(landPath, landStroke);
-
-    final provincePaint = Paint()
-      ..color = scheme.outlineVariant.withValues(alpha: 0.72)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    for (final line in _provinceLines(size)) {
-      canvas.drawPath(line, provincePaint);
-    }
-
-    _drawCityLabel(canvas, size, 'Beijing', const LatLng(39.9042, 116.4074));
-    _drawCityLabel(canvas, size, 'Shanghai', const LatLng(31.2304, 121.4737));
-    _drawCityLabel(canvas, size, 'Hangzhou', const LatLng(30.2741, 120.1551));
-    _drawCityLabel(canvas, size, 'Chengdu', const LatLng(30.5728, 104.0668));
-
-    if (places.length > 1) {
-      final routePaint = Paint()
-        ..color = (mode == _MapMode.planned ? scheme.primary : scheme.tertiary)
-            .withValues(alpha: 0.78)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 4
-        ..strokeCap = StrokeCap.round;
-      final route = Path();
-      for (var index = 0; index < places.length; index++) {
-        final point =
-            _projectChinaPoint(places[index].point, size) + _markerNudge(index);
-        if (index == 0) {
-          route.moveTo(point.dx, point.dy);
-        } else {
-          route.lineTo(point.dx, point.dy);
-        }
-      }
-      canvas.drawPath(route, routePaint);
-    }
-
-    final southSeaPaint = Paint()
-      ..color = scheme.tertiaryContainer.withValues(alpha: 0.65)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    final inset = Rect.fromLTWH(
-      size.width * 0.76,
-      size.height * 0.68,
-      size.width * 0.12,
-      size.height * 0.18,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(inset, const Radius.circular(8)),
-      southSeaPaint,
-    );
-  }
-
-  void _drawCityLabel(Canvas canvas, Size size, String text, LatLng point) {
-    final position = _projectChinaPoint(point, size);
-    final paragraph = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-          color: scheme.onSurfaceVariant,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final rect = Rect.fromLTWH(
-      position.dx + 8,
-      position.dy - 10,
-      paragraph.width + 10,
-      paragraph.height + 6,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(8)),
-      Paint()..color = scheme.surface.withValues(alpha: 0.82),
-    );
-    paragraph.paint(canvas, Offset(rect.left + 5, rect.top + 3));
-    canvas.drawCircle(position, 3, Paint()..color = scheme.primary);
-  }
-
-  List<Path> _provinceLines(Size size) {
-    return [
-      Path()
-        ..moveTo(size.width * 0.24, size.height * 0.27)
-        ..quadraticBezierTo(
-          size.width * 0.42,
-          size.height * 0.34,
-          size.width * 0.63,
-          size.height * 0.28,
-        ),
-      Path()
-        ..moveTo(size.width * 0.23, size.height * 0.47)
-        ..quadraticBezierTo(
-          size.width * 0.46,
-          size.height * 0.42,
-          size.width * 0.75,
-          size.height * 0.47,
-        ),
-      Path()
-        ..moveTo(size.width * 0.36, size.height * 0.20)
-        ..quadraticBezierTo(
-          size.width * 0.42,
-          size.height * 0.48,
-          size.width * 0.35,
-          size.height * 0.76,
-        ),
-      Path()
-        ..moveTo(size.width * 0.57, size.height * 0.22)
-        ..quadraticBezierTo(
-          size.width * 0.58,
-          size.height * 0.49,
-          size.width * 0.61,
-          size.height * 0.74,
-        ),
-    ];
-  }
-
-  @override
-  bool shouldRepaint(covariant _ChinaMapPainter oldDelegate) {
-    return oldDelegate.scheme != scheme ||
-        oldDelegate.places != places ||
-        oldDelegate.mode != mode;
-  }
-}
-
-Offset _projectChinaPoint(LatLng point, Size size) {
-  const minLng = 73.0;
-  const maxLng = 135.0;
-  const minLat = 18.0;
-  const maxLat = 54.0;
-  final x = ((point.longitude - minLng) / (maxLng - minLng)).clamp(0.0, 1.0);
-  final y = ((maxLat - point.latitude) / (maxLat - minLat)).clamp(0.0, 1.0);
-  return Offset(
-      size.width * (0.08 + x * 0.82), size.height * (0.12 + y * 0.76));
-}
-
-Offset _markerNudge(int index) {
-  const nudges = [
-    Offset.zero,
-    Offset(24, -18),
-    Offset(-26, 18),
-    Offset(30, 20),
-    Offset(-28, -20),
-    Offset(0, 30),
-  ];
-  return nudges[index % nudges.length];
+amap_base.LatLng _toAmapLatLng(LatLng point) {
+  return amap_base.LatLng(point.latitude, point.longitude);
 }
 
 class _ItineraryScreen extends StatelessWidget {
@@ -2672,7 +4827,7 @@ class _SavedScreen extends StatefulWidget {
   final List<SavedTrip> trips;
   final ValueChanged<SavedTrip> onAdd;
   final void Function(String title, String message) onShowInfo;
-  final VoidCallback onRemove;
+  final ValueChanged<SavedTrip> onRemove;
 
   @override
   State<_SavedScreen> createState() => _SavedScreenState();
@@ -2701,7 +4856,7 @@ class _SavedScreenState extends State<_SavedScreen> {
               trip.destination,
               '${trip.dateRange}\n${trip.itemCount}\n${trip.lastUpdated}',
             ),
-            onRemove: widget.onRemove,
+            onRemove: () => widget.onRemove(trip),
           ),
           const SizedBox(height: 10),
         ],
@@ -2744,7 +4899,7 @@ class _SavedScreenState extends State<_SavedScreen> {
               trip.destination,
               '${trip.dateRange}\n${trip.itemCount}\n${trip.lastUpdated}',
             ),
-            onRemove: widget.onRemove,
+            onRemove: () => widget.onRemove(trip),
           ),
           const SizedBox(height: 10),
         ],
@@ -2821,65 +4976,86 @@ class _SavedTripCard extends StatelessWidget {
 class _ProfileScreen extends StatefulWidget {
   const _ProfileScreen({
     required this.repository,
+    required this.user,
     required this.themeSource,
     required this.onThemePick,
     required this.onHelp,
     required this.onFeedback,
-    required this.onOnboarding,
     required this.onShowInfo,
-    required this.onToast,
+    required this.onLogout,
   });
 
-  final MockTravelRepository repository;
+  final TravelDataRepository repository;
+  final AppUser user;
   final ThemeSource themeSource;
   final VoidCallback onThemePick;
   final VoidCallback onHelp;
   final VoidCallback onFeedback;
-  final VoidCallback onOnboarding;
   final void Function(String title, String message) onShowInfo;
-  final ValueChanged<String> onToast;
+  final VoidCallback onLogout;
 
   @override
   State<_ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<_ProfileScreen> {
-  final interests = <String>{'Nature', 'Foodie'};
-  String budget = 'Medium';
-  final styles = <String>{'Short Trip'};
-  bool notifications = true;
-
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final stopCount = widget.repository.itineraryDays
+        .fold<int>(0, (sum, day) => sum + day.items.length);
+    final dayCount = widget.repository.itineraryDays.length;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
         Card.filled(
-          color: Theme.of(context).colorScheme.primaryContainer,
+          color: scheme.primaryContainer,
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 28,
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                  child: const Text('W',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                  child: Text(
+                    widget.user.initials,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
                 ),
                 const SizedBox(width: 16),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Guest traveler',
-                        style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.w700),
+                        widget.user.displayName,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: scheme.onPrimaryContainer,
+                              fontWeight: FontWeight.w800,
+                            ),
                       ),
-                      SizedBox(height: 4),
+                      const SizedBox(height: 4),
                       Text(
-                        'Phone verification and social login are front-end placeholders until backend auth is available.',
+                        widget.user.identifier,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: scheme.onPrimaryContainer,
+                            ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _MetricPill(
+                            icon: Icons.storage_outlined,
+                            label: 'SQLite data',
+                          ),
+                          _MetricPill(
+                            icon: Icons.verified_user_outlined,
+                            label: 'Signed in',
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -2888,118 +5064,51 @@ class _ProfileScreenState extends State<_ProfileScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        _LoginCard(onToast: widget.onToast),
         const SizedBox(height: 16),
-        const _SectionHeader(
-          title: 'Travel Preferences',
-          action: 'Used by recommendations',
-        ),
+        const _SectionHeader(title: 'Travel Data'),
         const SizedBox(height: 10),
-        Card.outlined(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Interest chips'),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final tag in widget.repository.preferences)
-                      FilterChip(
-                        label: Text(tag),
-                        selected: interests.contains(tag),
-                        onSelected: (selected) {
-                          setState(() {
-                            selected
-                                ? interests.add(tag)
-                                : interests.remove(tag);
-                          });
-                        },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text('Budget selector'),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final value in ['Low', 'Medium', 'High', 'Flexible'])
-                      ChoiceChip(
-                        label: Text(value),
-                        selected: budget == value,
-                        onSelected: (_) => setState(() => budget = value),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text('Travel style selector'),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final style in [
-                      'Solo',
-                      'Couple',
-                      'Friends',
-                      'Family',
-                      'Short Trip',
-                      'Long Trip',
-                    ])
-                      FilterChip(
-                        label: Text(style),
-                        selected: styles.contains(style),
-                        onSelected: (selected) {
-                          setState(() {
-                            selected ? styles.add(style) : styles.remove(style);
-                          });
-                        },
-                      ),
-                  ],
-                ),
-              ],
+        Row(
+          children: [
+            _ProfileMetricCard(
+              icon: Icons.calendar_today_outlined,
+              value: '$dayCount',
+              label: 'Days',
             ),
+            const SizedBox(width: 8),
+            _ProfileMetricCard(
+              icon: Icons.flag_outlined,
+              value: '$stopCount',
+              label: 'Stops',
+            ),
+            const SizedBox(width: 8),
+            _ProfileMetricCard(
+              icon: Icons.bookmark_border,
+              value: '${widget.repository.savedTrips.length}',
+              label: 'Saved',
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Card.outlined(
+          child: ListTile(
+            leading: const Icon(Icons.route_outlined),
+            title: Text(widget.repository.activeItineraryTitle),
+            subtitle: const Text('Current backend itinerary'),
           ),
         ),
         const SizedBox(height: 16),
-        const _SectionHeader(
-            title: 'Settings & Customization', action: 'Material You'),
+        const _SectionHeader(title: 'Account Settings'),
         const SizedBox(height: 10),
         Card.outlined(
           child: Column(
             children: [
               ListTile(
-                leading: const Icon(Icons.language),
-                title: const Text('Language'),
-                subtitle: const Text('English'),
-                onTap: () => widget.onToast('Language settings placeholder'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.payments_outlined),
-                title: const Text('Currency'),
-                subtitle: const Text('CNY'),
-                onTap: () => widget.onToast('Currency settings placeholder'),
-              ),
-              SwitchListTile(
-                secondary: const Icon(Icons.notifications_outlined),
-                title: const Text('Push notifications'),
-                subtitle:
-                    const Text('Itinerary reminders and saved trip updates'),
-                value: notifications,
-                onChanged: (value) => setState(() => notifications = value),
-              ),
-              ListTile(
                 leading: const Icon(Icons.privacy_tip_outlined),
                 title: const Text('Privacy'),
-                subtitle: const Text('Saved trips and personal travel data'),
+                subtitle: const Text('Local SQLite account and itinerary data'),
                 onTap: () => widget.onShowInfo(
                   'Privacy',
-                  'Privacy controls are grouped here for account, saved trips, and personal travel data visibility.',
+                  'This prototype stores account identifiers, saved trips, and itinerary data in the local SQLite backend.',
                 ),
               ),
               ListTile(
@@ -3008,115 +5117,36 @@ class _ProfileScreenState extends State<_ProfileScreen> {
                 subtitle: Text(widget.themeSource.label),
                 onTap: widget.onThemePick,
               ),
+              ListTile(
+                leading: const Icon(Icons.logout),
+                title: const Text('Sign out'),
+                subtitle: const Text('Return to login screen'),
+                onTap: widget.onLogout,
+              ),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        const _SectionHeader(
-            title: 'Support & Resources', action: 'Quick access'),
+        const _SectionHeader(title: 'Support'),
         const SizedBox(height: 10),
         Card.outlined(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                FilledButton.icon(
-                  onPressed: widget.onHelp,
-                  icon: const Icon(Icons.help_outline),
-                  label: const Text('Help Center'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: widget.onFeedback,
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Contact / Feedback'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: widget.onOnboarding,
-                  icon: const Icon(Icons.route_outlined),
-                  label: const Text('Onboarding Tips'),
-                ),
-              ],
-            ),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.help_outline),
+                title: const Text('Help Center'),
+                onTap: widget.onHelp,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Contact / Feedback'),
+                onTap: widget.onFeedback,
+              ),
+            ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _LoginCard extends StatelessWidget {
-  const _LoginCard({required this.onToast});
-
-  final ValueChanged<String> onToast;
-
-  @override
-  Widget build(BuildContext context) {
-    var hasPhone = false;
-    return Card.outlined(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Easy Account Setup',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            TextField(
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Phone number',
-                filled: true,
-              ),
-              onChanged: (value) => hasPhone = value.trim().isNotEmpty,
-            ),
-            const SizedBox(height: 12),
-            const TextField(
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Verification code',
-                filled: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => onToast(
-                      'Verification code flow is ready for backend integration.'),
-                  icon: const Icon(Icons.notifications_outlined),
-                  label: const Text('Send Code'),
-                ),
-                FilledButton.icon(
-                  onPressed: () {
-                    if (!hasPhone) {
-                      onToast('Phone required');
-                    } else {
-                      onToast('Logged in locally as guest');
-                    }
-                  },
-                  icon: const Icon(Icons.login),
-                  label: const Text('Login'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => onToast('Social login placeholder'),
-                  icon: const Icon(Icons.account_circle_outlined),
-                  label: const Text('Google'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => onToast('Social login placeholder'),
-                  icon: const Icon(Icons.chat_outlined),
-                  label: const Text('WeChat'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -3185,10 +5215,4 @@ class _SheetPadding extends StatelessWidget {
       ),
     );
   }
-}
-
-Color _onColor(Color color) {
-  return color.computeLuminance() > 0.45
-      ? const Color(0xFF111418)
-      : Colors.white;
 }

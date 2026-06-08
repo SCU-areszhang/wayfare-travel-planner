@@ -10,7 +10,13 @@ dependencies:
   flutter:
     sdk: flutter
   dynamic_color: ^1.8.1
+  http: ^1.5.0
   latlong2: ^0.9.1
+  amap_flutter_map:
+    path: third_party/amap_flutter_map
+  amap_flutter_base:
+    path: third_party/amap_flutter_base
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

@@ -5,10 +5,14 @@
 build/
 coverage/
 pubspec.lock
+*.log
+devtools_options.yaml
 
 android/.gradle/
 android/app/build/
 android/local.properties
+
+backend/data/
 
 .idea/
 *.iml

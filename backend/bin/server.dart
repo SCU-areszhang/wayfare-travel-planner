@@ -1,23 +1,23 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:sqlite3/sqlite3.dart';
+
 void main(List<String> args) async {
   final port = int.tryParse(
         Platform.environment['PORT'] ?? (args.isEmpty ? '' : args.first),
       ) ??
       8080;
+  final store = SqliteStore.open('data/wayfare.sqlite');
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
-  stdout
-      .writeln('Wayfare backend scaffold listening on http://localhost:$port');
+  stdout.writeln('Wayfare SQLite backend listening on http://localhost:$port');
 
   await for (final request in server) {
-    await _handle(request);
+    await _handle(request, store);
   }
 }
 
-final _store = _MemoryStore();
-
-Future<void> _handle(HttpRequest request) async {
+Future<void> _handle(HttpRequest request, SqliteStore store) async {
   _applyCors(request.response);
   if (request.method == 'OPTIONS') {
     request.response.statusCode = HttpStatus.noContent;
@@ -31,124 +31,121 @@ Future<void> _handle(HttpRequest request) async {
 
     if (method == 'GET' && path.isEmpty) {
       return _json(request, {
-        'name': 'Wayfare backend scaffold',
-        'version': '0.1.0',
-        'docs': '/health, /destinations, /itineraries, /saved',
+        'name': 'Wayfare backend',
+        'storage': 'SQLite',
+        'database': store.path,
       });
     }
 
     if (method == 'GET' && _matches(path, ['health'])) {
       return _json(request, {
         'status': 'ok',
-        'storage': 'in-memory',
-        'backendReadyFor': [
-          'auth',
-          'destinations',
-          'recommendations',
-          'mapPlaces',
-          'itineraries',
-          'savedTrips',
-          'feedback',
-        ],
+        'storage': 'SQLite',
+        'database': store.path,
+        'userCount': store.userCount(),
       });
+    }
+
+    if (method == 'POST' && _matches(path, ['auth', 'login'])) {
+      final body = await _body(request);
+      final identifier = (body['identifier'] ?? body['phone'] ?? body['email'])
+          ?.toString()
+          .trim()
+          .toLowerCase();
+      if (identifier == null || identifier.isEmpty) {
+        return _json(
+          request,
+          {'error': 'identifier, phone, or email is required'},
+          status: HttpStatus.badRequest,
+        );
+      }
+      final result = store.loginOrRegister(identifier);
+      return _json(request, result);
     }
 
     if (method == 'POST' && _matches(path, ['auth', 'send-code'])) {
       final body = await _body(request);
       return _json(request, {
         'requestId': _id('code'),
-        'phone': body['phone'],
-        'message': 'Verification code would be sent by SMS provider.',
-      });
-    }
-
-    if (method == 'POST' && _matches(path, ['auth', 'login'])) {
-      final body = await _body(request);
-      final phone = (body['phone'] ?? 'guest').toString();
-      return _json(request, {
-        'token': 'dev-token-$phone',
-        'user': _store.user..['phone'] = phone,
+        'identifier': body['identifier'] ?? body['phone'] ?? body['email'],
+        'message': 'SMS/email code is mocked for the course prototype.',
       });
     }
 
     if (method == 'GET' && _matches(path, ['me'])) {
-      return _json(request, {'user': _store.user});
+      final userId = request.headers.value('x-user-id') ?? 'user-dev-1';
+      final user = store.userById(userId);
+      if (user == null) {
+        return _notFound(request, 'User not found');
+      }
+      return _json(request, {'user': user});
     }
 
     if (method == 'GET' && _matches(path, ['destinations'])) {
-      return _json(request, {'items': _store.destinations});
+      return _json(request, {'items': store.destinations()});
     }
 
     if (method == 'GET' && path.length == 2 && path.first == 'destinations') {
-      final item = _store.destinations.firstWhere(
-        (destination) => destination['id'] == path[1],
-        orElse: () => {},
-      );
-      if (item.isEmpty) {
+      final item = store.destination(path[1]);
+      if (item == null) {
         return _notFound(request, 'Destination not found');
       }
       return _json(request, {'item': item});
     }
 
     if (method == 'GET' && _matches(path, ['recommendations'])) {
-      final items = _store.destinations
-          .where((destination) => destination['priority'] == true)
-          .toList();
-      return _json(request, {'items': items, 'strategy': 'rule-based-dev'});
+      return _json(request, {
+        'items': store.destinations(priorityOnly: true),
+        'strategy': 'rule-based-small-team',
+      });
+    }
+
+    if (method == 'GET' && _matches(path, ['search'])) {
+      final query = request.uri.queryParameters['q'] ?? '';
+      final limit =
+          int.tryParse(request.uri.queryParameters['limit'] ?? '') ?? 20;
+      return _json(request, {'items': await store.search(query, limit: limit)});
     }
 
     if (method == 'GET' && _matches(path, ['map', 'places'])) {
-      return _json(request, {'items': _store.mapPlaces});
+      return _json(request, {'items': store.mapPlaces()});
     }
 
     if (method == 'GET' && _matches(path, ['itineraries'])) {
-      return _json(request, {'items': _store.itineraries});
+      final userId = request.uri.queryParameters['userId'] ?? 'user-dev-1';
+      return _json(request, {'items': store.itineraries(userId)});
     }
 
     if (method == 'POST' && _matches(path, ['itineraries'])) {
       final body = await _body(request);
-      final item = {
-        'id': _id('trip'),
-        'userId': _store.user['id'],
-        'title': body['title'] ?? 'Untitled trip',
-        'destination': body['destination'] ?? 'TBD',
-        'startDate': body['startDate'] ?? 'TBD',
-        'endDate': body['endDate'] ?? 'TBD',
-        'status': 'draft',
-        'days': <Map<String, Object?>>[],
-        'createdAt': DateTime.now().toIso8601String(),
-        'updatedAt': DateTime.now().toIso8601String(),
-      };
-      _store.itineraries.add(item);
-      return _json(request, {'item': item}, status: HttpStatus.created);
+      return _json(
+        request,
+        {'item': store.createItinerary(body)},
+        status: HttpStatus.created,
+      );
     }
 
     if (path.length >= 2 && path.first == 'itineraries') {
-      return _handleItinerary(request, path);
+      return _handleItinerary(request, path, store);
     }
 
     if (method == 'GET' && _matches(path, ['saved'])) {
-      return _json(request, {'items': _store.savedTrips});
+      final userId = request.uri.queryParameters['userId'] ?? 'user-dev-1';
+      return _json(request, {'items': store.savedTrips(userId)});
     }
 
     if (method == 'POST' && _matches(path, ['saved'])) {
       final body = await _body(request);
-      final item = {
-        'id': _id('saved'),
-        'userId': _store.user['id'],
-        'type': body['type'] ?? 'destination',
-        'refId': body['refId'] ?? body['destination'] ?? 'unknown',
-        'folder': body['folder'] ?? 'Weekend',
-        'createdAt': DateTime.now().toIso8601String(),
-      };
-      _store.savedTrips.add(item);
-      return _json(request, {'item': item}, status: HttpStatus.created);
+      return _json(
+        request,
+        {'item': store.createSavedItem(body)},
+        status: HttpStatus.created,
+      );
     }
 
     if (method == 'DELETE' && path.length == 2 && path.first == 'saved') {
-      final before = _store.savedTrips.length;
-      _store.savedTrips.removeWhere((item) => item['id'] == path[1]);
-      if (_store.savedTrips.length == before) {
+      final deleted = store.deleteSavedItem(path[1]);
+      if (!deleted) {
         return _notFound(request, 'Saved item not found');
       }
       return _json(request, {'deleted': path[1]});
@@ -156,16 +153,11 @@ Future<void> _handle(HttpRequest request) async {
 
     if (method == 'POST' && _matches(path, ['feedback'])) {
       final body = await _body(request);
-      final item = {
-        'id': _id('feedback'),
-        'userId': _store.user['id'],
-        'category': body['category'] ?? 'general',
-        'description': body['description'] ?? '',
-        'status': 'open',
-        'createdAt': DateTime.now().toIso8601String(),
-      };
-      _store.feedback.add(item);
-      return _json(request, {'item': item}, status: HttpStatus.created);
+      return _json(
+        request,
+        {'item': store.createFeedback(body)},
+        status: HttpStatus.created,
+      );
     }
 
     return _notFound(request, 'Route not found');
@@ -180,12 +172,13 @@ Future<void> _handle(HttpRequest request) async {
   }
 }
 
-Future<void> _handleItinerary(HttpRequest request, List<String> path) async {
-  final trip = _store.itineraries.firstWhere(
-    (item) => item['id'] == path[1],
-    orElse: () => {},
-  );
-  if (trip.isEmpty) {
+Future<void> _handleItinerary(
+  HttpRequest request,
+  List<String> path,
+  SqliteStore store,
+) async {
+  final trip = store.itinerary(path[1]);
+  if (trip == null) {
     return _notFound(request, 'Itinerary not found');
   }
 
@@ -195,22 +188,680 @@ Future<void> _handleItinerary(HttpRequest request, List<String> path) async {
 
   if (request.method == 'PATCH' && path.length == 2) {
     final body = await _body(request);
-    for (final entry in body.entries) {
-      if (entry.key != 'id' && entry.key != 'days') {
-        trip[entry.key] = entry.value;
-      }
-    }
-    trip['updatedAt'] = DateTime.now().toIso8601String();
-    return _json(request, {'item': trip});
+    return _json(request, {'item': store.updateItinerary(path[1], body)});
   }
 
   if (request.method == 'DELETE' && path.length == 2) {
-    _store.itineraries.remove(trip);
+    store.deleteItinerary(path[1]);
     return _json(request, {'deleted': path[1]});
   }
 
   if (request.method == 'POST' && path.length == 3 && path[2] == 'days') {
     final body = await _body(request);
+    return _json(
+      request,
+      {'item': store.addDay(path[1], body)},
+      status: HttpStatus.created,
+    );
+  }
+
+  if (request.method == 'POST' &&
+      path.length == 5 &&
+      path[2] == 'days' &&
+      path[4] == 'items') {
+    final body = await _body(request);
+    return _json(
+      request,
+      {'item': store.addItem(path[1], path[3], body)},
+      status: HttpStatus.created,
+    );
+  }
+
+  if (path.length == 6 && path[2] == 'days' && path[4] == 'items') {
+    if (request.method == 'PATCH' && path[5] == 'reorder') {
+      final body = await _body(request);
+      return _json(
+        request,
+        {'items': store.reorderItems(path[1], path[3], body)},
+      );
+    }
+    if (request.method == 'PATCH') {
+      final body = await _body(request);
+      return _json(
+        request,
+        {'item': store.updateItem(path[1], path[3], path[5], body)},
+      );
+    }
+    if (request.method == 'DELETE') {
+      store.deleteItem(path[1], path[3], path[5]);
+      return _json(request, {'deleted': path[5]});
+    }
+  }
+
+  return _notFound(request, 'Itinerary route not found');
+}
+
+class SqliteStore {
+  SqliteStore._(this.path, this._db);
+
+  final String path;
+  final Database _db;
+
+  static SqliteStore open(String path) {
+    Directory(File(path).parent.path).createSync(recursive: true);
+    final db = sqlite3.open(path);
+    final store = SqliteStore._(path, db);
+    store._migrate();
+    store._seed();
+    return store;
+  }
+
+  void _migrate() {
+    _db.execute('PRAGMA foreign_keys = ON');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        identifier TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_login_at TEXT NOT NULL
+      )
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS destinations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        city TEXT NOT NULL,
+        theme TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        duration TEXT NOT NULL,
+        tags_json TEXT NOT NULL,
+        priority INTEGER NOT NULL,
+        lat REAL NOT NULL,
+        lng REAL NOT NULL
+      )
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS map_places (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT NOT NULL,
+        rating TEXT NOT NULL,
+        lat REAL NOT NULL,
+        lng REAL NOT NULL
+      )
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS scenic_spots (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        province TEXT NOT NULL,
+        city TEXT NOT NULL,
+        district TEXT NOT NULL,
+        level TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        intro TEXT NOT NULL,
+        aliases_json TEXT NOT NULL,
+        image_url TEXT NOT NULL,
+        lat REAL NOT NULL,
+        lng REAL NOT NULL
+      )
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS itineraries (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        status TEXT NOT NULL,
+        days_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS saved_trips (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        ref_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS feedback (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    _ensureColumn('saved_trips', 'label', "TEXT NOT NULL DEFAULT 'Saved item'");
+  }
+
+  void _seed() {
+    _deleteLegacyMapPlaceSeeds();
+    _deleteUnchangedLegacyItinerarySeed();
+    _mergeDuplicateItineraryDays();
+    if (_count('users') == 0) {
+      final now = DateTime.now().toIso8601String();
+      _db.execute(
+        'INSERT INTO users VALUES (?, ?, ?, ?, ?)',
+        ['user-dev-1', 'demo@wayfare.local', 'Demo Traveler', now, now],
+      );
+    }
+    if (_count('destinations') == 0) {
+      _insertDestination(
+        'dest-hangzhou',
+        'Hangzhou Lakeside',
+        'Hangzhou',
+        'Nature + Culture',
+        'West Lake, tea fields, evening streets, and easy walks.',
+        '2 days',
+        ['Nature', 'Culture', 'Weekend'],
+        true,
+        30.2431,
+        120.1508,
+      );
+      _insertDestination(
+        'dest-shanghai',
+        'Shanghai City Break',
+        'Shanghai',
+        'City Break',
+        'Museums, skyline viewpoints, food streets, and metro routes.',
+        '1-2 days',
+        ['City Break', 'Food', 'Culture'],
+        true,
+        31.2304,
+        121.4737,
+      );
+    }
+    _seedScenicSpots();
+    if (_count('itineraries') == 0) {
+      final today = DateTime.now().toIso8601String().split('T').first;
+      createItinerary({
+        'id': 'trip-dev-default',
+        'userId': 'user-dev-1',
+        'title': 'My Travel Plan',
+        'destination': 'Current Trip',
+        'startDate': today,
+        'endDate': today,
+        'days': <Map<String, Object?>>[],
+      });
+    }
+  }
+
+  void _deleteLegacyMapPlaceSeeds() {
+    _db.execute(
+      '''
+      DELETE FROM map_places
+      WHERE id IN (?, ?, ?)
+         OR name IN (?, ?, ?)
+      ''',
+      [
+        'place-west-lake',
+        'place-hefang',
+        'place-longjing',
+        'West Lake',
+        'Hefang Street',
+        'Longjing Village',
+      ],
+    );
+  }
+
+  void _deleteUnchangedLegacyItinerarySeed() {
+    final rows = _db.select(
+      'SELECT days_json FROM itineraries WHERE id = ?',
+      ['trip-dev-hangzhou'],
+    );
+    if (rows.isEmpty) {
+      return;
+    }
+    final decoded = jsonDecode(rows.first['days_json'] as String);
+    if (decoded is! List || decoded.length != 1) {
+      return;
+    }
+    final day = decoded.first;
+    if (day is! Map || day['id'] != 'day-dev-1') {
+      return;
+    }
+    final items = day['items'];
+    if (items is! List || items.length != 1) {
+      return;
+    }
+    final item = items.first;
+    if (item is! Map || item['id'] != 'item-dev-1') {
+      return;
+    }
+    _db.execute('DELETE FROM itineraries WHERE id = ?', ['trip-dev-hangzhou']);
+  }
+
+  void _mergeDuplicateItineraryDays() {
+    final rows = _db.select('SELECT * FROM itineraries');
+    for (final row in rows) {
+      final trip = _decodeItinerary(row);
+      final days = _days(trip);
+      final merged = <Map<String, Object?>>[];
+      final byDate = <String, Map<String, Object?>>{};
+      var changed = false;
+
+      for (final day in days) {
+        final date = day['date']?.toString();
+        final key = date == null || date.isEmpty
+            ? day['id']?.toString() ?? _id('day')
+            : date;
+        final existing = byDate[key];
+        if (existing == null) {
+          byDate[key] = day;
+          merged.add(day);
+          continue;
+        }
+        _items(existing).addAll(_items(day));
+        changed = true;
+      }
+
+      if (!changed) {
+        continue;
+      }
+      for (var dayIndex = 0; dayIndex < merged.length; dayIndex++) {
+        final day = merged[dayIndex];
+        day['dayIndex'] = dayIndex + 1;
+        final title = day['title']?.toString() ?? '';
+        if (RegExp(r'^Day \d+$').hasMatch(title)) {
+          day['title'] = 'Day ${dayIndex + 1}';
+        }
+        final items = _items(day);
+        for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
+          items[itemIndex]['order'] = itemIndex;
+        }
+        day['items'] = items;
+      }
+      trip['days'] = merged;
+      trip['updatedAt'] = DateTime.now().toIso8601String();
+      _saveItinerary(trip);
+    }
+  }
+
+  int userCount() => _count('users');
+
+  Map<String, Object?> loginOrRegister(String identifier) {
+    final existing = _db.select(
+      'SELECT * FROM users WHERE identifier = ?',
+      [identifier],
+    );
+    final now = DateTime.now().toIso8601String();
+    if (existing.isNotEmpty) {
+      final user = _row(existing.first);
+      _db.execute('UPDATE users SET last_login_at = ? WHERE id = ?', [
+        now,
+        user['id'],
+      ]);
+      return {
+        'registered': false,
+        'token': 'dev-token-${user['id']}',
+        'user': user
+      };
+    }
+
+    final user = {
+      'id': _id('user'),
+      'identifier': identifier,
+      'display_name': _displayName(identifier),
+      'created_at': now,
+      'last_login_at': now,
+    };
+    _db.execute(
+      'INSERT INTO users VALUES (?, ?, ?, ?, ?)',
+      [
+        user['id'],
+        user['identifier'],
+        user['display_name'],
+        user['created_at'],
+        user['last_login_at'],
+      ],
+    );
+    return {
+      'registered': true,
+      'token': 'dev-token-${user['id']}',
+      'user': user
+    };
+  }
+
+  Map<String, Object?>? userById(String id) => _first(
+        'SELECT * FROM users WHERE id = ?',
+        [id],
+      );
+
+  List<Map<String, Object?>> destinations({bool priorityOnly = false}) {
+    final rows = _db.select(
+      priorityOnly
+          ? 'SELECT * FROM destinations WHERE priority = 1'
+          : 'SELECT * FROM destinations',
+    );
+    return rows.map((row) {
+      final item = _row(row);
+      item['tags'] = jsonDecode(item.remove('tags_json') as String);
+      item['priority'] = item['priority'] == 1;
+      return item;
+    }).toList();
+  }
+
+  Map<String, Object?>? destination(String id) {
+    final item = _first('SELECT * FROM destinations WHERE id = ?', [id]);
+    if (item == null) {
+      return null;
+    }
+    item['tags'] = jsonDecode(item.remove('tags_json') as String);
+    item['priority'] = item['priority'] == 1;
+    return item;
+  }
+
+  List<Map<String, Object?>> mapPlaces() {
+    return _db.select('SELECT * FROM map_places').map(_row).toList();
+  }
+
+  Future<List<Map<String, Object?>>> search(String query,
+      {int limit = 20}) async {
+    final amapItems = await _searchAmap(query, limit: limit);
+    if (amapItems.isNotEmpty) {
+      return _normalizeSearchItems(amapItems);
+    }
+    return _normalizeSearchItems(_searchLocal(query, limit: limit));
+  }
+
+  List<Map<String, Object?>> _searchLocal(String query, {int limit = 20}) {
+    final text = query.trim().toLowerCase();
+    if (text.isEmpty) {
+      return [];
+    }
+    final like = '%$text%';
+    final items = <Map<String, Object?>>[];
+    final seen = <String>{};
+
+    final spots = _db.select(
+      '''
+      SELECT *, 0 AS rank FROM scenic_spots
+      WHERE lower(name) = ?
+      UNION ALL
+      SELECT *, 1 AS rank FROM scenic_spots
+      WHERE lower(name) LIKE ? OR lower(city) LIKE ? OR lower(province) LIKE ?
+         OR lower(district) LIKE ? OR lower(aliases_json) LIKE ?
+      ORDER BY rank, city, name
+      LIMIT ?
+      ''',
+      [text, like, like, like, like, like, limit],
+    );
+    for (final row in spots) {
+      final item = _row(row);
+      final id = item['id'].toString();
+      if (!seen.add(id)) {
+        continue;
+      }
+      items.add({
+        'id': item['id'],
+        'type': 'scenic_spot',
+        'name': item['name'],
+        'subtitle': '${item['city']} · ${item['district']}',
+        'city': item['city'],
+        'level': item['level'],
+        'intro': item['intro'],
+        'imageUrl': item['image_url'],
+        'lat': item['lat'],
+        'lng': item['lng'],
+      });
+    }
+
+    if (items.length >= limit) {
+      return items.take(limit).toList();
+    }
+
+    final destinationRows = _db.select(
+      '''
+      SELECT * FROM destinations
+      WHERE lower(name) LIKE ? OR lower(city) LIKE ? OR lower(theme) LIKE ?
+      LIMIT ?
+      ''',
+      [like, like, like, limit - items.length],
+    );
+    for (final row in destinationRows) {
+      final item = _row(row);
+      items.add({
+        'id': item['id'],
+        'type': 'destination',
+        'name': item['name'],
+        'subtitle': '${item['city']} · ${item['theme']}',
+        'city': item['city'],
+        'level': item['priority'] == 1 ? 'Recommended' : 'Destination',
+        'intro': _shortIntro(item['summary']?.toString() ?? ''),
+        'imageUrl': _imageUrl(item['name'].toString(), item['city'].toString()),
+        'lat': item['lat'],
+        'lng': item['lng'],
+      });
+    }
+
+    if (items.length >= limit) {
+      return items.take(limit).toList();
+    }
+
+    final placeRows = _db.select(
+      '''
+      SELECT * FROM map_places
+      WHERE lower(name) LIKE ? OR lower(category) LIKE ?
+      LIMIT ?
+      ''',
+      [like, like, limit - items.length],
+    );
+    for (final row in placeRows) {
+      final item = _row(row);
+      items.add({
+        'id': item['id'],
+        'type': 'map_place',
+        'name': item['name'],
+        'subtitle': item['category'],
+        'city': '',
+        'level': item['rating'],
+        'intro': _shortIntro(item['description']?.toString() ?? ''),
+        'imageUrl': _imageUrl(item['name'].toString(), 'China'),
+        'lat': item['lat'],
+        'lng': item['lng'],
+      });
+    }
+
+    return items.take(limit).toList();
+  }
+
+  Future<List<Map<String, Object?>>> _searchAmap(String query,
+      {int limit = 20}) async {
+    final key = Platform.environment['AMAP_WEB_SERVICE_KEY']?.trim();
+    final text = query.trim();
+    if (key == null || key.isEmpty || text.isEmpty) {
+      return [];
+    }
+
+    final uri = Uri.https('restapi.amap.com', '/v3/place/text', {
+      'key': key,
+      'keywords': text,
+      'city': '全国',
+      'citylimit': 'false',
+      'offset': limit.clamp(1, 25).toString(),
+      'page': '1',
+      'extensions': 'all',
+      'output': 'json',
+    });
+
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 8);
+      try {
+        final request = await client.getUrl(uri);
+        final response = await request.close().timeout(
+              const Duration(seconds: 10),
+            );
+        if (response.statusCode != HttpStatus.ok) {
+          return [];
+        }
+        final raw = await utf8.decoder.bind(response).join();
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map || decoded['status']?.toString() != '1') {
+          return [];
+        }
+        final pois = decoded['pois'];
+        if (pois is! List) {
+          return [];
+        }
+        final items = <Map<String, Object?>>[];
+        final seen = <String>{};
+        for (final poi in pois) {
+          if (poi is! Map) {
+            continue;
+          }
+          final location = poi['location']?.toString() ?? '';
+          final parts = location.split(',');
+          if (parts.length != 2) {
+            continue;
+          }
+          final lng = double.tryParse(parts[0]);
+          final lat = double.tryParse(parts[1]);
+          if (lat == null || lng == null) {
+            continue;
+          }
+          final id = poi['id']?.toString() ??
+              'amap-${lat.toStringAsFixed(6)}-${lng.toStringAsFixed(6)}';
+          if (!seen.add(id)) {
+            continue;
+          }
+          final name = poi['name']?.toString() ?? text;
+          final city = _amapField(poi['cityname']);
+          final district = _amapField(poi['adname']);
+          final address = _amapField(poi['address']);
+          final type = _amapField(poi['type']);
+          final imageUrl = _amapPhotoUrl(poi) ??
+              _imageUrl(name, city.isEmpty ? 'China' : city);
+          items.add({
+            'id': id,
+            'type': 'amap_poi',
+            'name': name,
+            'subtitle': [
+              if (city.isNotEmpty) city,
+              if (district.isNotEmpty) district,
+              if (address.isNotEmpty) address,
+            ].join(' 路 '),
+            'city': city,
+            'level': 'AMap',
+            'intro': _shortIntro(type.isEmpty ? address : type),
+            'imageUrl': imageUrl,
+            'lat': lat,
+            'lng': lng,
+          });
+        }
+        return items.take(limit).toList();
+      } finally {
+        client.close(force: true);
+      }
+    } catch (_) {
+      return [];
+    }
+  }
+
+  List<Map<String, Object?>> _normalizeSearchItems(
+    List<Map<String, Object?>> items,
+  ) {
+    return items.map((item) {
+      final normalized = Map<String, Object?>.from(item);
+      final subtitle = normalized['subtitle']?.toString() ?? '';
+      normalized['subtitle'] = subtitle
+          .replaceAll(' \u8def ', ' ')
+          .replaceAll(' 璺?', ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if ((normalized['level']?.toString().toLowerCase() ?? '') == 'amap') {
+        normalized['level'] = '';
+      }
+      final imageUrl = normalized['imageUrl']?.toString() ?? '';
+      if (imageUrl.isEmpty) {
+        normalized['imageUrl'] = _imageUrl(
+          normalized['name']?.toString() ?? 'travel',
+          normalized['city']?.toString() ?? 'China',
+        );
+      }
+      return normalized;
+    }).toList(growable: false);
+  }
+
+  List<Map<String, Object?>> itineraries(String userId) {
+    return _db
+        .select('SELECT * FROM itineraries WHERE user_id = ?', [userId])
+        .map(_decodeItinerary)
+        .toList();
+  }
+
+  Map<String, Object?>? itinerary(String id) {
+    final result = _db.select('SELECT * FROM itineraries WHERE id = ?', [id]);
+    if (result.isEmpty) {
+      return null;
+    }
+    return _decodeItinerary(result.first);
+  }
+
+  Map<String, Object?> createItinerary(Map<String, Object?> body) {
+    final now = DateTime.now().toIso8601String();
+    final item = {
+      'id': body['id'] ?? _id('trip'),
+      'userId': body['userId'] ?? 'user-dev-1',
+      'title': body['title'] ?? 'Untitled trip',
+      'destination': body['destination'] ?? 'TBD',
+      'startDate': body['startDate'] ?? 'TBD',
+      'endDate': body['endDate'] ?? 'TBD',
+      'status': body['status'] ?? 'draft',
+      'days': body['days'] ?? <Map<String, Object?>>[],
+      'createdAt': now,
+      'updatedAt': now,
+    };
+    _db.execute(
+      'INSERT OR REPLACE INTO itineraries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        item['id'],
+        item['userId'],
+        item['title'],
+        item['destination'],
+        item['startDate'],
+        item['endDate'],
+        item['status'],
+        jsonEncode(item['days']),
+        item['createdAt'],
+        item['updatedAt'],
+      ],
+    );
+    return item;
+  }
+
+  Map<String, Object?> updateItinerary(String id, Map<String, Object?> body) {
+    final item = itinerary(id);
+    if (item == null) {
+      throw StateError('Itinerary not found');
+    }
+    item.addAll(body);
+    item['updatedAt'] = DateTime.now().toIso8601String();
+    _saveItinerary(item);
+    return item;
+  }
+
+  void deleteItinerary(String id) {
+    _db.execute('DELETE FROM itineraries WHERE id = ?', [id]);
+  }
+
+  Map<String, Object?> addDay(String itineraryId, Map<String, Object?> body) {
+    final trip = itinerary(itineraryId);
+    if (trip == null) {
+      throw StateError('Itinerary not found');
+    }
     final days = _days(trip);
     final day = {
       'id': _id('day'),
@@ -222,65 +873,1202 @@ Future<void> _handleItinerary(HttpRequest request, List<String> path) async {
       'items': <Map<String, Object?>>[],
     };
     days.add(day);
+    trip['days'] = days;
     trip['updatedAt'] = DateTime.now().toIso8601String();
-    return _json(request, {'item': day}, status: HttpStatus.created);
+    _saveItinerary(trip);
+    return day;
   }
 
-  if (path.length >= 5 && path[2] == 'days') {
+  Map<String, Object?> addItem(
+    String itineraryId,
+    String dayId,
+    Map<String, Object?> body,
+  ) {
+    final trip = itinerary(itineraryId);
+    if (trip == null) {
+      throw StateError('Itinerary not found');
+    }
     final days = _days(trip);
-    final day = days.firstWhere(
-      (item) => item['id'] == path[3],
-      orElse: () => {},
+    final day = days.firstWhere((entry) => entry['id'] == dayId);
+    final items = _items(day);
+    final item = {
+      'id': _id('item'),
+      'time': body['time'] ?? 'Flexible',
+      'placeId': body['placeId'],
+      'placeName': body['placeName'] ?? body['place'] ?? 'TBD',
+      'activity': body['activity'] ?? 'Plan visit',
+      'note': body['note'] ?? '',
+      'order': body['order'] ?? items.length,
+      'status': body['status'] ?? 'draft',
+      'lat': body['lat'],
+      'lng': body['lng'],
+    };
+    items.add(item);
+    day['items'] = items;
+    trip['days'] = days;
+    trip['updatedAt'] = DateTime.now().toIso8601String();
+    _saveItinerary(trip);
+    return item;
+  }
+
+  Map<String, Object?> updateItem(
+    String itineraryId,
+    String dayId,
+    String itemId,
+    Map<String, Object?> body,
+  ) {
+    final trip = itinerary(itineraryId);
+    if (trip == null) {
+      throw StateError('Itinerary not found');
+    }
+    final days = _days(trip);
+    final day = days.firstWhere((entry) => entry['id'] == dayId);
+    final items = _items(day);
+    final item = items.firstWhere((entry) => entry['id'] == itemId);
+    item.addAll(body);
+    final targetDayId = body['targetDayId']?.toString();
+    if (targetDayId != null && targetDayId.isNotEmpty && targetDayId != dayId) {
+      items.removeWhere((entry) => entry['id'] == itemId);
+      final targetDay = days.firstWhere((entry) => entry['id'] == targetDayId);
+      final targetItems = _items(targetDay);
+      item['order'] = targetItems.length;
+      targetItems.add(item);
+      targetDay['items'] = targetItems;
+    }
+    item['status'] = body['status'] ?? item['status'] ?? 'draft';
+    item.remove('targetDayId');
+    for (final indexedDay in days) {
+      final indexedItems = _items(indexedDay);
+      for (var index = 0; index < indexedItems.length; index++) {
+        indexedItems[index]['order'] = index;
+      }
+      indexedDay['items'] = indexedItems;
+    }
+    trip['updatedAt'] = DateTime.now().toIso8601String();
+    _saveItinerary(trip);
+    return item;
+  }
+
+  List<Map<String, Object?>> reorderItems(
+    String itineraryId,
+    String dayId,
+    Map<String, Object?> body,
+  ) {
+    final trip = itinerary(itineraryId);
+    if (trip == null) {
+      throw StateError('Itinerary not found');
+    }
+    final ids = (body['itemIds'] as List?)?.map((id) => id.toString()).toList();
+    if (ids == null) {
+      throw const FormatException('itemIds is required.');
+    }
+    final days = _days(trip);
+    final day = days.firstWhere((entry) => entry['id'] == dayId);
+    final items = _items(day);
+    final byId = {for (final item in items) item['id'].toString(): item};
+    final reordered = <Map<String, Object?>>[];
+    for (final id in ids) {
+      final item = byId[id];
+      if (item != null) {
+        reordered.add(item);
+      }
+    }
+    for (final item in items) {
+      if (!ids.contains(item['id'].toString())) {
+        reordered.add(item);
+      }
+    }
+    for (var index = 0; index < reordered.length; index++) {
+      reordered[index]['order'] = index;
+    }
+    day['items'] = reordered;
+    trip['days'] = days;
+    trip['updatedAt'] = DateTime.now().toIso8601String();
+    _saveItinerary(trip);
+    return reordered;
+  }
+
+  void deleteItem(String itineraryId, String dayId, String itemId) {
+    final trip = itinerary(itineraryId);
+    if (trip == null) {
+      throw StateError('Itinerary not found');
+    }
+    final days = _days(trip);
+    final day = days.firstWhere((entry) => entry['id'] == dayId);
+    final items = _items(day)..removeWhere((entry) => entry['id'] == itemId);
+    day['items'] = items;
+    trip['days'] = days;
+    trip['updatedAt'] = DateTime.now().toIso8601String();
+    _saveItinerary(trip);
+  }
+
+  List<Map<String, Object?>> savedTrips(String userId) {
+    return _db
+        .select('SELECT * FROM saved_trips WHERE user_id = ?', [userId])
+        .map(_row)
+        .toList();
+  }
+
+  Map<String, Object?> createSavedItem(Map<String, Object?> body) {
+    final now = DateTime.now().toIso8601String();
+    final item = {
+      'id': _id('saved'),
+      'user_id': body['userId'] ?? 'user-dev-1',
+      'type': body['type'] ?? 'destination',
+      'ref_id': body['refId'] ?? body['destination'] ?? 'unknown',
+      'label':
+          body['label'] ?? body['destination'] ?? body['refId'] ?? 'Saved item',
+      'folder': body['folder'] ?? 'Weekend',
+      'created_at': now,
+    };
+    _db.execute(
+      '''
+      INSERT INTO saved_trips
+        (id, user_id, type, ref_id, label, folder, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        item['id'],
+        item['user_id'],
+        item['type'],
+        item['ref_id'],
+        item['label'],
+        item['folder'],
+        item['created_at'],
+      ],
     );
-    if (day.isEmpty) {
-      return _notFound(request, 'Itinerary day not found');
-    }
+    return item;
+  }
 
-    if (request.method == 'POST' && path.length == 5 && path[4] == 'items') {
-      final body = await _body(request);
-      final items = _items(day);
-      final item = {
-        'id': _id('item'),
-        'time': body['time'] ?? 'Flexible',
-        'placeId': body['placeId'],
-        'placeName': body['placeName'] ?? body['place'] ?? 'TBD',
-        'activity': body['activity'] ?? 'Plan visit',
-        'note': body['note'] ?? '',
-        'order': body['order'] ?? items.length,
-        'status': 'draft',
-      };
-      items.add(item);
-      trip['updatedAt'] = DateTime.now().toIso8601String();
-      return _json(request, {'item': item}, status: HttpStatus.created);
-    }
+  bool deleteSavedItem(String id) {
+    final before = _count('saved_trips');
+    _db.execute('DELETE FROM saved_trips WHERE id = ?', [id]);
+    return _count('saved_trips') < before;
+  }
 
-    if (path.length == 6 && path[4] == 'items') {
-      final items = _items(day);
-      final item = items.firstWhere(
-        (entry) => entry['id'] == path[5],
-        orElse: () => {},
+  Map<String, Object?> createFeedback(Map<String, Object?> body) {
+    final now = DateTime.now().toIso8601String();
+    final item = {
+      'id': _id('feedback'),
+      'user_id': body['userId'] ?? 'user-dev-1',
+      'category': body['category'] ?? 'general',
+      'description': body['description'] ?? '',
+      'status': 'open',
+      'created_at': now,
+    };
+    _db.execute(
+      'INSERT INTO feedback VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        item['id'],
+        item['user_id'],
+        item['category'],
+        item['description'],
+        item['status'],
+        item['created_at'],
+      ],
+    );
+    return item;
+  }
+
+  void _saveItinerary(Map<String, Object?> item) {
+    _db.execute(
+      '''
+      UPDATE itineraries
+      SET title = ?, destination = ?, start_date = ?, end_date = ?,
+          status = ?, days_json = ?, updated_at = ?
+      WHERE id = ?
+      ''',
+      [
+        item['title'],
+        item['destination'],
+        item['startDate'],
+        item['endDate'],
+        item['status'],
+        jsonEncode(item['days']),
+        item['updatedAt'],
+        item['id'],
+      ],
+    );
+  }
+
+  Map<String, Object?> _decodeItinerary(Row row) {
+    final item = _row(row);
+    return {
+      'id': item['id'],
+      'userId': item['user_id'],
+      'title': item['title'],
+      'destination': item['destination'],
+      'startDate': item['start_date'],
+      'endDate': item['end_date'],
+      'status': item['status'],
+      'days': jsonDecode(item['days_json'] as String),
+      'createdAt': item['created_at'],
+      'updatedAt': item['updated_at'],
+    };
+  }
+
+  int _count(String table) {
+    return _db.select('SELECT COUNT(*) AS value FROM $table').first['value']
+        as int;
+  }
+
+  Map<String, Object?>? _first(String sql, [List<Object?> params = const []]) {
+    final result = _db.select(sql, params);
+    return result.isEmpty ? null : _row(result.first);
+  }
+
+  void _seedScenicSpots() {
+    final spots = [
+      [
+        'spot-bj-palace',
+        '故宫博物院',
+        '北京',
+        '北京',
+        '东城区',
+        '5A',
+        '博物馆',
+        '明清宫城与皇家建筑群',
+        'forbidden city,palace museum,故宫',
+        39.9163,
+        116.3972
+      ],
+      [
+        'spot-bj-summer-palace',
+        '颐和园',
+        '北京',
+        '北京',
+        '海淀区',
+        '5A',
+        '皇家园林',
+        '皇家园林与昆明湖山景',
+        'summer palace,颐和园景区',
+        39.9999,
+        116.2755
+      ],
+      [
+        'spot-bj-temple-heaven',
+        '天坛公园',
+        '北京',
+        '北京',
+        '东城区',
+        '5A',
+        '历史文化',
+        '祭天建筑与古柏园林',
+        'temple of heaven,天坛',
+        39.8822,
+        116.4066
+      ],
+      [
+        'spot-bj-798',
+        '798艺术区',
+        '北京',
+        '北京',
+        '朝阳区',
+        '4A',
+        '艺术街区',
+        '工业遗存与当代艺术空间',
+        '798 art district,北京798',
+        39.9842,
+        116.4962
+      ],
+      [
+        'spot-sh-oriental-pearl',
+        '东方明珠',
+        '上海',
+        '上海',
+        '浦东新区',
+        '5A',
+        '城市地标',
+        '浦江天际线与观景塔',
+        'oriental pearl tower,东方明珠广播电视塔',
+        31.2397,
+        121.4998
+      ],
+      [
+        'spot-sh-yuyuan',
+        '豫园',
+        '上海',
+        '上海',
+        '黄浦区',
+        '4A',
+        '古典园林',
+        '江南园林与城隍庙街区',
+        'yu garden,豫园商城',
+        31.2273,
+        121.4920
+      ],
+      [
+        'spot-sh-museum',
+        '上海博物馆',
+        '上海',
+        '上海',
+        '黄浦区',
+        '4A',
+        '博物馆',
+        '中国古代艺术与城市文化',
+        'shanghai museum,上海博物馆人民广场',
+        31.2303,
+        121.4708
+      ],
+      [
+        'spot-sh-bund',
+        '外滩',
+        '上海',
+        '上海',
+        '黄浦区',
+        '城市核心',
+        '滨江街区',
+        '万国建筑与浦江夜景',
+        'the bund shanghai,外滩风景区',
+        31.2400,
+        121.4908
+      ],
+      [
+        'spot-gz-canton-tower',
+        '广州塔',
+        '广东',
+        '广州',
+        '海珠区',
+        '4A',
+        '城市地标',
+        '珠江夜景与高塔观景',
+        'canton tower,广州塔小蛮腰',
+        23.1067,
+        113.3245
+      ],
+      [
+        'spot-gz-yuexiu',
+        '越秀公园',
+        '广东',
+        '广州',
+        '越秀区',
+        '4A',
+        '城市公园',
+        '五羊石像与广州城脉',
+        'yuexiu park,越秀山',
+        23.1396,
+        113.2644
+      ],
+      [
+        'spot-gz-chen-clan',
+        '陈家祠',
+        '广东',
+        '广州',
+        '荔湾区',
+        '4A',
+        '岭南建筑',
+        '岭南祠堂与民间工艺',
+        'chen clan ancestral hall,陈家祠堂',
+        23.1292,
+        113.2475
+      ],
+      [
+        'spot-gz-shamian',
+        '沙面',
+        '广东',
+        '广州',
+        '荔湾区',
+        '城市核心',
+        '历史街区',
+        '欧陆建筑与珠江街景',
+        'shamian island,沙面岛',
+        23.1092,
+        113.2393
+      ],
+      [
+        'spot-sz-window',
+        '世界之窗',
+        '广东',
+        '深圳',
+        '南山区',
+        '5A',
+        '主题公园',
+        '世界微缩景观与演艺',
+        'window of the world shenzhen,深圳世界之窗',
+        22.5343,
+        113.9737
+      ],
+      [
+        'spot-sz-splendid-china',
+        '锦绣中华民俗村',
+        '广东',
+        '深圳',
+        '南山区',
+        '5A',
+        '主题公园',
+        '中国微缩景观与民俗演艺',
+        'splendid china folk village,锦绣中华',
+        22.5350,
+        113.9810
+      ],
+      [
+        'spot-sz-happy-valley',
+        '深圳欢乐谷',
+        '广东',
+        '深圳',
+        '南山区',
+        '4A',
+        '主题公园',
+        '大型游乐设施与演艺',
+        'happy valley shenzhen,深圳欢乐谷',
+        22.5394,
+        113.9865
+      ],
+      [
+        'spot-sz-lianhuashan',
+        '莲花山公园',
+        '广东',
+        '深圳',
+        '福田区',
+        '城市核心',
+        '城市公园',
+        '城市中轴与山顶视野',
+        'lianhuashan park shenzhen,莲花山',
+        22.5550,
+        114.0557
+      ],
+      [
+        'spot-hz-west-lake',
+        '西湖',
+        '浙江',
+        '杭州',
+        '西湖区',
+        '5A',
+        '湖泊景区',
+        '湖山园林与江南风景',
+        'west lake hangzhou,杭州西湖',
+        30.2431,
+        120.1508
+      ],
+      [
+        'spot-cs-yuelu-orange',
+        '岳麓山橘子洲',
+        '湖南',
+        '长沙',
+        '岳麓区',
+        '5A',
+        '山水景区',
+        '湘江洲岛与岳麓山景',
+        'yuelu mountain orange isle,橘子洲,岳麓山',
+        28.1960,
+        112.9552
+      ],
+      [
+        'spot-cd-kuanzhai',
+        '宽窄巷子',
+        '四川',
+        '成都',
+        '青羊区',
+        '4A',
+        '历史街区',
+        '清代街巷与川西生活体验',
+        'kuanzhai alley,宽窄巷子景区',
+        30.6695,
+        104.0552
+      ],
+      [
+        'spot-cd-wuhou',
+        '武侯祠',
+        '四川',
+        '成都',
+        '武侯区',
+        '4A',
+        '历史文化',
+        '三国文化与园林红墙',
+        'wuhou shrine,成都武侯祠',
+        30.6455,
+        104.0473
+      ],
+      [
+        'spot-cd-dufu',
+        '杜甫草堂',
+        '四川',
+        '成都',
+        '青羊区',
+        '4A',
+        '博物馆',
+        '唐诗文化与清幽园林',
+        'dufu thatched cottage,杜甫草堂博物馆',
+        30.6598,
+        104.0289
+      ],
+      [
+        'spot-hz-songcheng',
+        '杭州宋城',
+        '浙江',
+        '杭州',
+        '西湖区',
+        '4A',
+        '主题景区',
+        '宋韵演艺与古街体验',
+        'songcheng,杭州宋城景区',
+        30.1739,
+        120.0881
+      ],
+      [
+        'spot-hz-qinghefang',
+        '清河坊历史街区',
+        '浙江',
+        '杭州',
+        '上城区',
+        '4A',
+        '历史街区',
+        '老杭州街巷与小吃商铺',
+        'hefang street,清河坊,河坊街',
+        30.2416,
+        120.1784
+      ],
+      [
+        'spot-hz-tea-museum',
+        '中国茶叶博物馆',
+        '浙江',
+        '杭州',
+        '西湖区',
+        '4A',
+        '博物馆',
+        '茶文化展示与龙井山景',
+        'china national tea museum,茶叶博物馆',
+        30.2265,
+        120.1001
+      ],
+      [
+        'spot-cq-hongyadong',
+        '洪崖洞',
+        '重庆',
+        '重庆',
+        '渝中区',
+        '4A',
+        '城市夜景',
+        '吊脚楼夜景与山城步道',
+        'hongyadong,洪崖洞民俗风貌区',
+        29.5623,
+        106.5792
+      ],
+      [
+        'spot-cq-ciqikou',
+        '磁器口古镇',
+        '重庆',
+        '重庆',
+        '沙坪坝区',
+        '4A',
+        '古镇',
+        '巴渝古镇与小吃街巷',
+        'ciqikou,磁器口',
+        29.5815,
+        106.4515
+      ],
+      [
+        'spot-cq-zoo',
+        '重庆动物园',
+        '重庆',
+        '重庆',
+        '九龙坡区',
+        '4A',
+        '公园',
+        '城市动物园与亲子游线',
+        'chongqing zoo,重庆动物园',
+        29.5111,
+        106.5110
+      ],
+      [
+        'spot-wh-museum',
+        '湖北省博物馆',
+        '湖北',
+        '武汉',
+        '武昌区',
+        '4A',
+        '博物馆',
+        '楚文化文物与编钟展',
+        'hubei provincial museum,湖北博物馆',
+        30.5619,
+        114.3672
+      ],
+      [
+        'spot-wh-jianghan',
+        '江汉路步行街',
+        '湖北',
+        '武汉',
+        '江汉区',
+        '城市核心',
+        '商业街区',
+        '近代建筑与城市商业街',
+        'jianghan road,江汉路',
+        30.5864,
+        114.2869
+      ],
+      [
+        'spot-wh-yellow-crane',
+        '黄鹤楼',
+        '湖北',
+        '武汉',
+        '武昌区',
+        '城市核心',
+        '历史地标',
+        '江城名楼与长江视野',
+        'yellow crane tower,黄鹤楼公园',
+        30.5467,
+        114.3046
+      ],
+      [
+        'spot-sz-pingjiang',
+        '平江路历史街区',
+        '江苏',
+        '苏州',
+        '姑苏区',
+        '4A',
+        '历史街区',
+        '水巷老街与苏式生活',
+        'pingjiang road,平江路',
+        31.3133,
+        120.6319
+      ],
+      [
+        'spot-sz-shantang',
+        '山塘街',
+        '江苏',
+        '苏州',
+        '姑苏区',
+        '4A',
+        '历史街区',
+        '古运河街景与夜游',
+        'shantang street,七里山塘',
+        31.3261,
+        120.5988
+      ],
+      [
+        'spot-sz-museum',
+        '苏州博物馆',
+        '江苏',
+        '苏州',
+        '姑苏区',
+        '城市核心',
+        '博物馆',
+        '贝聿铭建筑与江南文物',
+        'suzhou museum,苏博',
+        31.3223,
+        120.6272
+      ],
+      [
+        'spot-xa-datang',
+        '大唐不夜城',
+        '陕西',
+        '西安',
+        '雁塔区',
+        '城市核心',
+        '文化街区',
+        '唐风夜游与演艺街区',
+        'datang everbright city,大唐不夜城',
+        34.2118,
+        108.9631
+      ],
+      [
+        'spot-xa-shaanxi-museum',
+        '陕西历史博物馆',
+        '陕西',
+        '西安',
+        '雁塔区',
+        '4A',
+        '博物馆',
+        '周秦汉唐文物精华',
+        'shaanxi history museum,陕历博',
+        34.2292,
+        108.9570
+      ],
+      [
+        'spot-xa-bell-tower',
+        '西安钟鼓楼',
+        '陕西',
+        '西安',
+        '碑林区',
+        '城市核心',
+        '历史地标',
+        '古城中轴与夜景地标',
+        'bell tower xian,鼓楼,钟楼',
+        34.2610,
+        108.9423
+      ],
+      [
+        'spot-nj-presidential',
+        '南京总统府',
+        '江苏',
+        '南京',
+        '玄武区',
+        '4A',
+        '历史文化',
+        '近代史建筑与园林院落',
+        'presidential palace nanjing,总统府',
+        32.0444,
+        118.7924
+      ],
+      [
+        'spot-nj-xuanwu',
+        '玄武湖',
+        '江苏',
+        '南京',
+        '玄武区',
+        '4A',
+        '城市公园',
+        '城墙湖景与环湖散步',
+        'xuanwu lake,玄武湖公园',
+        32.0712,
+        118.7932
+      ],
+      [
+        'spot-nj-yuejiang',
+        '阅江楼',
+        '江苏',
+        '南京',
+        '鼓楼区',
+        '4A',
+        '历史地标',
+        '登楼看江与明城故事',
+        'yuejiang tower,阅江楼景区',
+        32.0884,
+        118.7466
+      ],
+      [
+        'spot-cs-hunan-museum',
+        '湖南博物院',
+        '湖南',
+        '长沙',
+        '开福区',
+        '4A',
+        '博物馆',
+        '马王堆文物与湖湘历史',
+        'hunan museum,湖南省博物馆',
+        28.2135,
+        112.9836
+      ],
+      [
+        'spot-cs-taiping',
+        '太平街',
+        '湖南',
+        '长沙',
+        '天心区',
+        '城市核心',
+        '历史街区',
+        '老街小吃与长沙夜游',
+        'taiping street changsha,太平老街',
+        28.1911,
+        112.9735
+      ],
+      [
+        'spot-cs-orange',
+        '橘子洲',
+        '湖南',
+        '长沙',
+        '岳麓区',
+        '5A',
+        '洲岛公园',
+        '湘江洲岛与城市天际线',
+        'orange isle,橘子洲头',
+        28.1960,
+        112.9552
+      ],
+      [
+        'spot-zz-henan-museum',
+        '河南博物院',
+        '河南',
+        '郑州',
+        '金水区',
+        '4A',
+        '博物馆',
+        '中原文明与青铜文物',
+        'henan museum,河南博物院',
+        34.7928,
+        113.6777
+      ],
+      [
+        'spot-zz-erqi',
+        '二七纪念塔',
+        '河南',
+        '郑州',
+        '二七区',
+        '城市核心',
+        '城市地标',
+        '郑州老城商业地标',
+        'erqi memorial tower,二七塔',
+        34.7511,
+        113.6655
+      ],
+      [
+        'spot-zz-yellow-river',
+        '黄河风景名胜区',
+        '河南',
+        '郑州',
+        '惠济区',
+        '4A',
+        '自然人文',
+        '黄河岸线与炎黄文化',
+        'yellow river scenic area zhengzhou,郑州黄河',
+        34.9541,
+        113.6218
+      ],
+      [
+        'spot-tj-wudadao',
+        '五大道',
+        '天津',
+        '天津',
+        '和平区',
+        '4A',
+        '历史街区',
+        '近代洋楼与街区漫步',
+        'five great avenues,五大道文化旅游区',
+        39.1124,
+        117.2026
+      ],
+      [
+        'spot-tj-italian',
+        '意式风情区',
+        '天津',
+        '天津',
+        '河北区',
+        '4A',
+        '历史街区',
+        '欧式街景与海河夜游',
+        'italian style town tianjin,意风区',
+        39.1375,
+        117.1992
+      ],
+      [
+        'spot-tj-ancient-culture',
+        '古文化街',
+        '天津',
+        '天津',
+        '南开区',
+        '城市核心',
+        '民俗街区',
+        '津门民俗与传统商铺',
+        'ancient culture street tianjin,古文化街',
+        39.1427,
+        117.1886
+      ],
+      [
+        'spot-hf-baogong',
+        '包公园',
+        '安徽',
+        '合肥',
+        '包河区',
+        '4A',
+        '历史公园',
+        '包公文化与环城水景',
+        'bao park,包公园景区',
+        31.8625,
+        117.2994
+      ],
+      [
+        'spot-hf-anhui-museum',
+        '安徽博物院',
+        '安徽',
+        '合肥',
+        '蜀山区',
+        '4A',
+        '博物馆',
+        '徽文化文物与省级展览',
+        'anhui museum,安徽博物院新馆',
+        31.8216,
+        117.2210
+      ],
+      [
+        'spot-hf-xiaoyaojin',
+        '逍遥津公园',
+        '安徽',
+        '合肥',
+        '庐阳区',
+        '城市核心',
+        '城市公园',
+        '三国故事与城市公园',
+        'xiaoyaojin park,逍遥津',
+        31.8728,
+        117.2929
+      ],
+      [
+        'spot-qd-badaguan',
+        '八大关',
+        '山东',
+        '青岛',
+        '市南区',
+        '4A',
+        '历史街区',
+        '海滨别墅与花石楼街景',
+        'badaguan,八大关风景区',
+        36.0518,
+        120.3542
+      ],
+      [
+        'spot-qd-zhanqiao',
+        '栈桥',
+        '山东',
+        '青岛',
+        '市南区',
+        '4A',
+        '海滨地标',
+        '海湾栈桥与老城风景',
+        'zhanqiao pier,青岛栈桥',
+        36.0610,
+        120.3202
+      ],
+      [
+        'spot-qd-beer',
+        '青岛啤酒博物馆',
+        '山东',
+        '青岛',
+        '市北区',
+        '4A',
+        '博物馆',
+        '啤酒工业史与城市味道',
+        'tsingtao beer museum,青岛啤酒博物馆',
+        36.0839,
+        120.3580
+      ],
+      [
+        'spot-dg-keyuan',
+        '可园博物馆',
+        '广东',
+        '东莞',
+        '莞城区',
+        '4A',
+        '岭南园林',
+        '岭南园林与莞邑文化',
+        'keyuan dongguan,可园',
+        23.0440,
+        113.7442
+      ],
+      [
+        'spot-dg-songshan',
+        '松山湖',
+        '广东',
+        '东莞',
+        '松山湖',
+        '4A',
+        '城市湖区',
+        '湖岸骑行与科技园景',
+        'songshan lake dongguan,松山湖景区',
+        22.9146,
+        113.8891
+      ],
+      [
+        'spot-dg-opium-war',
+        '鸦片战争博物馆',
+        '广东',
+        '东莞',
+        '虎门镇',
+        '4A',
+        '博物馆',
+        '近代史展陈与虎门炮台',
+        'opium war museum,虎门炮台',
+        22.8215,
+        113.6730
+      ],
+      [
+        'spot-nb-tianyi',
+        '天一阁',
+        '浙江',
+        '宁波',
+        '海曙区',
+        '城市核心',
+        '藏书楼',
+        '古代藏书楼与江南院落',
+        'tianyi pavilion,天一阁博物院',
+        29.8731,
+        121.5407
+      ],
+      [
+        'spot-nb-old-bund',
+        '宁波老外滩',
+        '浙江',
+        '宁波',
+        '江北区',
+        '城市核心',
+        '历史街区',
+        '江岸建筑与夜生活街区',
+        'ningbo old bund,老外滩',
+        29.8805,
+        121.5598
+      ],
+      [
+        'spot-nb-nantang',
+        '南塘老街',
+        '浙江',
+        '宁波',
+        '海曙区',
+        '城市核心',
+        '历史街区',
+        '甬城小吃与老街商铺',
+        'nantang old street,南塘老街',
+        29.8524,
+        121.5425
+      ],
+      [
+        'spot-fs-ancestral',
+        '佛山祖庙',
+        '广东',
+        '佛山',
+        '禅城区',
+        '4A',
+        '历史文化',
+        '岭南建筑与醒狮武术',
+        'foshan ancestral temple,祖庙',
+        23.0300,
+        113.1120
+      ],
+      [
+        'spot-fs-nanfeng',
+        '南风古灶',
+        '广东',
+        '佛山',
+        '禅城区',
+        '4A',
+        '陶艺文化',
+        '陶瓷古窑与手作体验',
+        'nanfeng ancient kiln,南风古灶',
+        23.0127,
+        113.0875
+      ],
+      [
+        'spot-fs-lingnan',
+        '岭南天地',
+        '广东',
+        '佛山',
+        '禅城区',
+        '城市核心',
+        '历史街区',
+        '岭南骑楼与城市商业',
+        'lingnan tiandi,岭南天地',
+        23.0270,
+        113.1170
+      ],
+    ];
+
+    for (final spot in spots) {
+      _insertScenicSpot(
+        spot[0] as String,
+        spot[1] as String,
+        spot[2] as String,
+        spot[3] as String,
+        spot[4] as String,
+        spot[5] as String,
+        spot[6] as String,
+        spot[7] as String,
+        (spot[8] as String).split(','),
+        spot[9] as double,
+        spot[10] as double,
       );
-      if (item.isEmpty) {
-        return _notFound(request, 'Itinerary item not found');
-      }
-
-      if (request.method == 'PATCH') {
-        final body = await _body(request);
-        item.addAll(body);
-        item['status'] = body['status'] ?? 'draft';
-        trip['updatedAt'] = DateTime.now().toIso8601String();
-        return _json(request, {'item': item});
-      }
-
-      if (request.method == 'DELETE') {
-        items.remove(item);
-        trip['updatedAt'] = DateTime.now().toIso8601String();
-        return _json(request, {'deleted': path[5]});
-      }
     }
   }
 
-  return _notFound(request, 'Itinerary route not found');
+  void _insertDestination(
+    String id,
+    String name,
+    String city,
+    String theme,
+    String summary,
+    String duration,
+    List<String> tags,
+    bool priority,
+    double lat,
+    double lng,
+  ) {
+    _db.execute(
+      'INSERT INTO destinations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        name,
+        city,
+        theme,
+        summary,
+        duration,
+        jsonEncode(tags),
+        priority ? 1 : 0,
+        lat,
+        lng
+      ],
+    );
+  }
+
+  void _insertScenicSpot(
+    String id,
+    String name,
+    String province,
+    String city,
+    String district,
+    String level,
+    String kind,
+    String intro,
+    List<String> aliases,
+    double lat,
+    double lng,
+  ) {
+    _db.execute(
+      '''
+      INSERT OR REPLACE INTO scenic_spots
+        (id, name, province, city, district, level, kind, intro,
+         aliases_json, image_url, lat, lng)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        id,
+        name,
+        province,
+        city,
+        district,
+        level,
+        kind,
+        _shortIntro(intro),
+        jsonEncode(aliases),
+        _imageUrl(name, city),
+        lat,
+        lng,
+      ],
+    );
+  }
+
+  void _ensureColumn(String table, String column, String definition) {
+    final columns = _db.select('PRAGMA table_info($table)');
+    final exists = columns.any((row) => row['name'] == column);
+    if (!exists) {
+      _db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+    }
+  }
+}
+
+String _shortIntro(String value) {
+  final text = value.trim();
+  if (text.length <= 18) {
+    return text;
+  }
+  return text.substring(0, 18);
+}
+
+String _amapField(Object? value) {
+  if (value == null) {
+    return '';
+  }
+  if (value is List) {
+    return value.whereType<Object>().map((item) => item.toString()).join(' ');
+  }
+  return value.toString();
+}
+
+String? _amapPhotoUrl(Map<Object?, Object?> poi) {
+  final photos = poi['photos'];
+  if (photos is! List || photos.isEmpty) {
+    return null;
+  }
+  final first = photos.first;
+  if (first is! Map) {
+    return null;
+  }
+  final url = first['url']?.toString().trim();
+  if (url == null || url.isEmpty) {
+    return null;
+  }
+  return url;
+}
+
+String _imageUrl(String name, String city) {
+  final seed = Uri.encodeComponent('$city-$name-travel');
+  return 'https://picsum.photos/seed/$seed/640/360';
 }
 
 List<Map<String, Object?>> _days(Map<String, Object?> trip) {
@@ -289,6 +2077,12 @@ List<Map<String, Object?>> _days(Map<String, Object?> trip) {
 
 List<Map<String, Object?>> _items(Map<String, Object?> day) {
   return (day['items'] as List).cast<Map<String, Object?>>();
+}
+
+Map<String, Object?> _row(Row row) {
+  return {
+    for (final column in row.keys) column: row[column],
+  };
 }
 
 Future<Map<String, Object?>> _body(HttpRequest request) async {
@@ -322,7 +2116,8 @@ void _applyCors(HttpResponse response) {
   response.headers
     ..set('Access-Control-Allow-Origin', '*')
     ..set('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
-    ..set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    ..set(
+        'Access-Control-Allow-Headers', 'Content-Type,Authorization,x-user-id');
 }
 
 bool _matches(List<String> path, List<String> target) {
@@ -341,117 +2136,12 @@ String _id(String prefix) {
   return '$prefix-${DateTime.now().microsecondsSinceEpoch}';
 }
 
-class _MemoryStore {
-  final user = <String, Object?>{
-    'id': 'user-dev-1',
-    'phone': null,
-    'displayName': 'Guest traveler',
-    'avatarUrl': null,
-    'preferences': ['Nature', 'Foodie'],
-    'budget': 'Medium',
-    'travelStyle': ['Short Trip'],
-    'createdAt': '2026-05-18T00:00:00.000',
-  };
-
-  final destinations = <Map<String, Object?>>[
-    {
-      'id': 'dest-hangzhou',
-      'name': 'Hangzhou Lakeside',
-      'city': 'Hangzhou',
-      'theme': 'Nature + Culture',
-      'summary': 'West Lake, tea fields, evening streets, and easy walks.',
-      'duration': '2 days',
-      'tags': ['Nature', 'Culture', 'Weekend'],
-      'priority': true,
-      'lat': 30.2431,
-      'lng': 120.1508,
-    },
-    {
-      'id': 'dest-shanghai',
-      'name': 'Shanghai City Break',
-      'city': 'Shanghai',
-      'theme': 'City Break',
-      'summary': 'Museums, skyline viewpoints, food streets, and metro routes.',
-      'duration': '1-2 days',
-      'tags': ['City Break', 'Food', 'Culture'],
-      'priority': true,
-      'lat': 31.2304,
-      'lng': 121.4737,
-    },
-  ];
-
-  final mapPlaces = <Map<String, Object?>>[
-    {
-      'id': 'place-west-lake',
-      'name': 'West Lake',
-      'category': 'Attraction',
-      'lat': 30.2431,
-      'lng': 120.1508,
-      'rating': 4.8,
-    },
-    {
-      'id': 'place-hefang',
-      'name': 'Hefang Street',
-      'category': 'Food',
-      'lat': 30.2416,
-      'lng': 120.1784,
-      'rating': 4.5,
-    },
-    {
-      'id': 'place-longjing',
-      'name': 'Longjing Village',
-      'category': 'Nature',
-      'lat': 30.2207,
-      'lng': 120.0912,
-      'rating': 4.7,
-    },
-  ];
-
-  final itineraries = <Map<String, Object?>>[
-    {
-      'id': 'trip-dev-hangzhou',
-      'userId': 'user-dev-1',
-      'title': 'Hangzhou Weekend',
-      'destination': 'Hangzhou',
-      'startDate': '2026-05-24',
-      'endDate': '2026-05-25',
-      'status': 'draft',
-      'days': [
-        {
-          'id': 'day-dev-1',
-          'dayIndex': 1,
-          'title': 'Day 1',
-          'date': '2026-05-24',
-          'city': 'Hangzhou',
-          'reminder': 'Light rain possible, keep outdoor stops flexible',
-          'items': [
-            {
-              'id': 'item-dev-1',
-              'time': '09:00',
-              'placeName': 'West Lake',
-              'activity': 'Walk the lakeside route',
-              'note': 'Start near Broken Bridge.',
-              'order': 0,
-              'status': 'saved',
-            },
-          ],
-        },
-      ],
-      'createdAt': '2026-05-18T00:00:00.000',
-      'updatedAt': '2026-05-18T00:00:00.000',
-    },
-  ];
-
-  final savedTrips = <Map<String, Object?>>[
-    {
-      'id': 'saved-hangzhou',
-      'userId': 'user-dev-1',
-      'type': 'itinerary',
-      'refId': 'trip-dev-hangzhou',
-      'folder': 'Weekend',
-      'createdAt': '2026-05-18T00:00:00.000',
-    },
-  ];
-
-  final feedback = <Map<String, Object?>>[];
+String _displayName(String identifier) {
+  if (identifier.contains('@')) {
+    return identifier.split('@').first;
+  }
+  if (identifier.length >= 4) {
+    return 'Traveler ${identifier.substring(identifier.length - 4)}';
+  }
+  return 'Traveler';
 }

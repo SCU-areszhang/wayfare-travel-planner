@@ -106,6 +106,16 @@ flutter build web --release --pwa-strategy=none
 python -m http.server 8092 --bind 127.0.0.1 --directory build/web
 ```
 
+For the shortest local demo path after `build/web` exists, run:
+
+```powershell
+dart run tool/local_demo.dart
+```
+
+This starts or reuses the backend on `127.0.0.1:8080`, starts or reuses the
+Flutter Web shell on `127.0.0.1:8092`, runs the local smoke check, and keeps the
+demo available until you stop the command.
+
 Then verify the basic local demo path:
 
 ```powershell

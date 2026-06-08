@@ -436,6 +436,14 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added a lightweight local smoke command for the reduced basic-function handoff scope. The command checks backend health, login, authenticated `/me`, scenic search, and the optional served Flutter Web shell.
 - Acceptance link: A local reviewer can run one command after starting backend/frontend to confirm the core demo path is available.
 
+## Basic Local Demo Startup Iteration
+
+### A00/A01/A06
+
+- Files: `tool/local_demo.dart`, `README.md`, `AGENTS.md`, `docs/goal_execution.md`
+- Change: Added a local demo startup command that starts or reuses the Dart backend and Flutter Web static server, runs the local smoke check, prints the frontend/backend URLs, and keeps the demo available until interrupted.
+- Acceptance link: A local reviewer can start the basic demo without manually remembering backend environment variables or Python static-server commands.
+
 ## Verification Results
 
 Runnable:
@@ -511,6 +519,12 @@ backend: 14 tests passed.
 Local demo smoke
 dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092
 Result: backend health, login, authenticated /me, search, and served Web shell passed.
+```
+
+```text
+Local demo startup
+dart run tool/local_demo.dart
+Result: detected existing backend/frontend, ran the local smoke check, printed ready URLs, and stayed running until interrupted.
 ```
 
 ```text

@@ -25,6 +25,17 @@ Production-oriented configuration:
 - `WAYFARE_DB_PATH`: SQLite path. Default: `data/wayfare.sqlite`.
 - `AMAP_WEB_SERVICE_KEY`: optional backend AMap Web Service key for live POI search.
 
+Before deploying a shared or production backend, run the project-level release
+gate from the repository root:
+
+```powershell
+dart run tool/release_readiness.dart --mode release
+```
+
+This check fails when the auth secret is weak, CORS origins are not HTTPS-only,
+the Flutter API base is still local, AMap keys are missing, or Android release
+signing inputs are unavailable.
+
 ## Current Data Boundaries
 
 - `User`: account id, phone, display name, preferences, budget, travel style.

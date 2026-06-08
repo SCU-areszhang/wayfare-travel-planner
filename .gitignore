@@ -12,6 +12,9 @@ devtools_options.yaml
 android/.gradle/
 android/app/build/
 android/local.properties
+android/key.properties
+*.jks
+*.keystore
 
 backend/data/
 

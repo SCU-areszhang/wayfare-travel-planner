@@ -338,6 +338,26 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added `WayfareBackend.logout()`, made Flutter logout revoke the backend session on a best-effort basis before local cleanup, and updated the fake backend contract used by widget tests.
 - Acceptance link: Frontend session lifecycle matches the backend revocation model.
 
+## Release Gate Iteration
+
+### A07/A06
+
+- Files: `tool/release_readiness.dart`, `test/release_readiness_test.dart`, `.github/workflows/ci.yml`
+- Change: Added a machine-readable release readiness gate with `local` and `release` modes, CI execution for local mode, and tests for missing and complete production inputs.
+- Acceptance link: CI can prove local release hygiene, while production release mode fails when secrets, HTTPS origins, AMap keys, API base, or Android signing inputs are absent.
+
+### A07
+
+- Files: `android/app/build.gradle`, `android/gradle.properties`, `android/app/build.gradle.kts`, `android/settings.gradle.kts`, `.gitignore`
+- Change: Replaced debug-key release signing with release signing backed by environment variables or ignored `android/key.properties`, kept Flutter's Gradle migration flags, removed duplicate ignored KTS Gradle files, and ignored local keystore material.
+- Acceptance link: Android release tasks cannot silently ship a debug-signed artifact.
+
+### A00/A01
+
+- Files: `README.md`, `backend/README.md`, `AGENTS.md`, `docs/goal_execution.md`
+- Change: Documented release readiness commands, production configuration expectations, Android signing inputs, and the updated role/SOP gate.
+- Acceptance link: Future implementation and release work has traceable commands and acceptance conditions.
+
 ## Verification Results
 
 Runnable:
@@ -391,7 +411,7 @@ No issues found.
 
 ```text
 flutter test
-All tests passed.
+4 tests passed.
 ```
 
 ```text
@@ -406,12 +426,26 @@ backend: No issues found.
 
 ```text
 dart test
-backend: 6 tests passed.
+backend: 8 tests passed.
 ```
 
 ```text
 Session hardening tests
 backend: logout revokes token, opaque session token format covered.
+```
+
+```text
+Release readiness
+local mode: pass with warnings for missing production secrets, HTTPS origins, AMap keys, and Android signing inputs on this workstation.
+release mode with complete production-like inputs: pass.
+```
+
+```text
+Android debug build
+flutter build apk --debug --no-pub: blocked by Android SDK state.
+Failure: NDK 28.2.13676358 license not accepted.
+Additional environment gap: sdkmanager is not on PATH, so this shell cannot accept SDK licenses or install cmdline-tools.
+Repository fix completed during this check: duplicate ignored KTS Gradle files were removed so only the Groovy Gradle configuration remains active.
 ```
 
 ```text
@@ -425,9 +459,9 @@ Backend curl smoke proved login returned a signed token, unauthenticated /me ret
 
 Residual risk:
 
-- Android device builds still need Android SDK cmdline-tools. iOS/macOS builds still need full Xcode and CocoaPods.
-- Android release signing and appbundle verification remain incomplete.
+- Android device builds still need Android SDK cmdline-tools or a working `sdkmanager`, accepted NDK licenses, and appbundle verification on a configured Android workstation.
+- Android release signing is now wired and gated, but a real keystore and production AMap/API/auth values are not present in this repository and must be supplied by CI or a release workstation.
+- iOS/macOS builds still need full Xcode and CocoaPods.
 - Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, monitoring, rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
 - Frontend search concurrency, map point confirmation UX, broader widget/E2E tests, and API parsing strictness remain future commercial hardening work.
 - PDF and DOCX layout fidelity could not be visually rendered because Poppler and LibreOffice are missing.
-- The nested repository still has pre-existing unstaged Android/Web/Windows platform changes that were intentionally not touched in this iteration.

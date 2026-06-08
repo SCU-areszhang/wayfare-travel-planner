@@ -105,6 +105,45 @@ To point the web build at another backend:
 flutter build web --release --pwa-strategy=none --dart-define=WAYFARE_API_BASE=https://api.example.com
 ```
 
+## Release Readiness
+
+Run the local release gate before handing off a build:
+
+```powershell
+dart run tool/release_readiness.dart --mode local
+```
+
+For a commercial release, provide production values and run:
+
+```powershell
+dart run tool/release_readiness.dart --mode release
+```
+
+Release mode requires a strong `WAYFARE_AUTH_SECRET`, HTTPS-only
+`WAYFARE_ALLOWED_ORIGINS`, a production HTTPS `WAYFARE_API_BASE`, real
+`AMAP_JS_KEY`, `AMAP_JS_SECURITY_CODE`, and `AMAP_ANDROID_KEY` values, plus
+Android release signing credentials. Android signing can come from environment
+variables:
+
+```powershell
+$env:WAYFARE_ANDROID_KEYSTORE='C:\secure\wayfare-release.jks'
+$env:WAYFARE_ANDROID_STORE_PASSWORD='store-password'
+$env:WAYFARE_ANDROID_KEY_ALIAS='wayfare'
+$env:WAYFARE_ANDROID_KEY_PASSWORD='key-password'
+```
+
+or from an ignored `android/key.properties` file:
+
+```properties
+storeFile=C:\\secure\\wayfare-release.jks
+storePassword=store-password
+keyAlias=wayfare
+keyPassword=key-password
+```
+
+The Gradle release build no longer signs with debug keys. If release signing is
+missing, Android release tasks fail instead of producing a misleading package.
+
 For Android builds, make sure Android Studio / Android SDK is installed and Flutter can see it:
 
 ```powershell

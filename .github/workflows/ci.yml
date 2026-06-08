@@ -26,7 +26,7 @@ jobs:
       - name: Verify formatting
         run: |
           dart format --output=none --set-exit-if-changed \
-            lib test backend/bin backend/test
+            lib test tool backend/bin backend/test
 
       - name: Install Flutter dependencies
         run: flutter pub get
@@ -36,6 +36,9 @@ jobs:
 
       - name: Test Flutter app
         run: flutter test --no-pub
+
+      - name: Check local release readiness
+        run: dart run tool/release_readiness.dart --mode local
 
       - name: Build Flutter web
         run: flutter build web --release --no-pub --pwa-strategy=none

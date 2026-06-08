@@ -176,6 +176,17 @@ curl http://127.0.0.1:8080/health
 curl "http://127.0.0.1:8080/search?q=orange"
 ```
 
+Release readiness:
+
+```bash
+dart run tool/release_readiness.dart --mode local
+dart run tool/release_readiness.dart --mode release
+```
+
+Use `--mode local` for repeatable CI and handoff checks. Use `--mode release`
+only when production `WAYFARE_*`, `AMAP_*`, and Android signing inputs are
+available.
+
 ## Testing
 
 Test priorities:
@@ -197,6 +208,9 @@ Test priorities:
 - Do not include secrets in logs, screenshots, docs, tests, or final summaries.
 - Public resource IDs are prototype IDs; use stronger random IDs before production.
 - Backend validation must reject malformed JSON, empty identifiers, empty feedback, and invalid request shapes with client errors.
+- Android release builds must use release signing credentials from environment
+  variables or ignored `android/key.properties`; debug signing is not acceptable
+  for release artifacts.
 
 ## Failure Records
 

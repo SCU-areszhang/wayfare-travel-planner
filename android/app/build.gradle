@@ -3,6 +3,25 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def keyProperties = new Properties()
+def keyPropertiesFile = rootProject.file("key.properties")
+if (keyPropertiesFile.exists()) {
+    keyPropertiesFile.withInputStream { stream ->
+        keyProperties.load(stream)
+    }
+}
+
+def releaseStoreFile = System.getenv("WAYFARE_ANDROID_KEYSTORE") ?: keyProperties.getProperty("storeFile")
+def releaseStorePassword = System.getenv("WAYFARE_ANDROID_STORE_PASSWORD") ?: keyProperties.getProperty("storePassword")
+def releaseKeyAlias = System.getenv("WAYFARE_ANDROID_KEY_ALIAS") ?: keyProperties.getProperty("keyAlias")
+def releaseKeyPassword = System.getenv("WAYFARE_ANDROID_KEY_PASSWORD") ?: keyProperties.getProperty("keyPassword")
+def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword].every {
+    it != null && it.toString().trim()
+}
+def releaseTaskRequested = gradle.startParameter.taskNames.any {
+    it.toLowerCase(Locale.ROOT).contains("release")
+}
+
 android {
     namespace "com.idm.travelplanner"
     compileSdk flutter.compileSdkVersion
@@ -15,6 +34,32 @@ android {
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode
         versionName flutter.versionName
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (!hasReleaseSigning && releaseTaskRequested) {
+                throw new GradleException(
+                    "Release signing is required. Set WAYFARE_ANDROID_KEYSTORE, " +
+                    "WAYFARE_ANDROID_STORE_PASSWORD, WAYFARE_ANDROID_KEY_ALIAS, " +
+                    "and WAYFARE_ANDROID_KEY_PASSWORD, or create ignored android/key.properties."
+                )
+            }
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
     }
 }
 

@@ -400,6 +400,20 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added regression coverage for missing/invalid ops token rejection and authorized aggregate metrics output; extended release readiness fixtures and production input checks for `WAYFARE_OPS_TOKEN`.
 - Acceptance link: `dart test` proves metrics are protected and aggregate counters are emitted.
 
+## SQLite Backup Iteration
+
+### A05/A07
+
+- Files: `backend/bin/backup.dart`, `backend/README.md`, `README.md`, `AGENTS.md`, `.gitignore`, `tool/release_readiness.dart`
+- Change: Added a verified SQLite backup command that runs source `PRAGMA quick_check`, creates a consistent backup with `VACUUM INTO`, verifies the backup with `PRAGMA quick_check`, writes a manifest with size and SHA-256, ignores local backup artifacts, documents scheduling/storage expectations, and requires `WAYFARE_BACKUP_DIR` for release readiness.
+- Acceptance link: The project now has a repeatable backup artifact path instead of only documenting backup as a residual risk.
+
+### A06
+
+- Files: `backend/test/backup_test.dart`, `test/release_readiness_test.dart`
+- Change: Added backup tests for manifest creation, backup readability, SHA-256 metadata, and missing/empty database rejection; updated release readiness fixtures.
+- Acceptance link: `dart test` proves local backup generation produces a readable, verified SQLite copy and manifest.
+
 ## Verification Results
 
 Runnable:
@@ -468,7 +482,7 @@ backend: No issues found.
 
 ```text
 dart test
-backend: 11 tests passed.
+backend: 13 tests passed.
 ```
 
 ```text
@@ -478,8 +492,14 @@ backend: logout revokes token, opaque session token format covered.
 
 ```text
 Release readiness
-local mode: pass with warnings for missing production auth/ops secrets, HTTPS origins, AMap keys, and Android signing inputs on this workstation.
+local mode: pass with warnings for missing production auth/ops secrets, backup directory, HTTPS origins, AMap keys, and Android signing inputs on this workstation.
 release mode with complete production-like inputs: pass.
+```
+
+```text
+SQLite backup smoke
+dart run bin/backup.dart --database data/wayfare.sqlite --backup-dir /private/tmp/wayfare-backups --label smoke
+Result: created a verified SQLite backup and manifest with quickCheck: ok.
 ```
 
 ```text
@@ -504,6 +524,6 @@ Residual risk:
 - Android toolchain is now usable for debug APK builds on this machine, but Android release/appbundle verification still needs real signing credentials and production AMap/API/auth values supplied by CI or a release workstation.
 - Android debug builds currently pass with a Flutter warning that the app and `dynamic_color` still apply Kotlin Gradle Plugin; future Flutter releases may require migration to Built-in Kotlin.
 - iOS/macOS builds still need full Xcode and CocoaPods.
-- Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, external log/metric shipping, distributed/shared rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
+- Backend is still SQLite-based and single-process; production deployment still needs migration discipline, scheduled external backup storage/retention, external log/metric shipping, distributed/shared rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
 - Frontend search concurrency, map point confirmation UX, broader widget/E2E tests, and API parsing strictness remain future commercial hardening work.
 - PDF and DOCX layout fidelity could not be visually rendered because Poppler and LibreOffice are missing.

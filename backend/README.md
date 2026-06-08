@@ -24,6 +24,7 @@ Production-oriented configuration:
 - `WAYFARE_ALLOWED_ORIGINS`: comma-separated CORS allow-list. If unset, only loopback origins are allowed for local development.
 - `WAYFARE_BIND_HOST`: bind address. Default: `127.0.0.1`.
 - `WAYFARE_DB_PATH`: SQLite path. Default: `data/wayfare.sqlite`.
+- `WAYFARE_BACKUP_DIR`: directory for SQLite backup artifacts created by `dart run bin/backup.dart`. Default: `backups`.
 - `AMAP_WEB_SERVICE_KEY`: optional backend AMap Web Service key for live POI search.
 - `WAYFARE_RATE_LIMIT_ENABLED`: set to `false` only for controlled local debugging. Default: enabled.
 - `WAYFARE_RATE_LIMIT_WINDOW_SECONDS`: fixed-window duration, clamped to 1-3600 seconds. Default: `60`.
@@ -40,8 +41,9 @@ dart run tool/release_readiness.dart --mode release
 ```
 
 This check fails when the auth or ops secret is weak, CORS origins are not
-HTTPS-only, the Flutter API base is still local, AMap keys are missing, or
-Android release signing inputs are unavailable.
+HTTPS-only, the backup directory is not configured, the Flutter API base is
+still local, AMap keys are missing, or Android release signing inputs are
+unavailable.
 
 Rate limiting is in-memory and per backend process. It is suitable for the
 single-node prototype and smoke deployments; clustered production deployments
@@ -55,6 +57,25 @@ Authorization: Bearer <WAYFARE_OPS_TOKEN>
 
 Metrics are aggregate route/status counters and timings. They intentionally do
 not include request bodies, identifiers, tokens, or concrete resource ids.
+
+## SQLite Backups
+
+Create a verified local SQLite backup:
+
+```powershell
+dart run bin/backup.dart --database data/wayfare.sqlite --backup-dir backups
+```
+
+The backup command:
+
+- runs `PRAGMA quick_check` on the source database;
+- uses SQLite `VACUUM INTO` for a consistent backup file;
+- runs `PRAGMA quick_check` on the generated backup;
+- writes a `.manifest.json` file with timestamp, size, SHA-256, and quick-check result.
+
+For shared or production environments, set `WAYFARE_BACKUP_DIR` to durable
+storage outside the app build directory and schedule this command from the
+deployment platform or job runner.
 
 ## Current Data Boundaries
 
@@ -107,6 +128,6 @@ The server derives the user id from a hashed, server-side session. Client-provid
 ## Next Backend Steps
 
 1. Replace the built-in session table with a production identity provider when team or compliance needs require SSO, MFA, or centralized audit.
-2. Move SQLite migrations, backups, and rate-limit counters to production-grade infrastructure for multi-node deployments.
+2. Move SQLite migrations, backup scheduling/storage, and rate-limit counters to production-grade infrastructure for multi-node deployments.
 3. Split the growing server file into route/store/model modules.
 4. Add a map provider adapter for the final Web AMap integration.

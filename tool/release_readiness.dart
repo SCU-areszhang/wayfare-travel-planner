@@ -117,6 +117,8 @@ class _ReadinessChecker {
       'backend/pubspec.lock': 'Pin backend dependency resolution.',
       'lib/main.dart': 'Keep the Flutter entrypoint present.',
       'backend/bin/server.dart': 'Keep the backend entrypoint present.',
+      'backend/bin/backup.dart':
+          'Keep a verified SQLite backup tool available.',
     };
     requiredFiles.forEach((path, fix) {
       if (!_file(path).existsSync()) {
@@ -145,6 +147,13 @@ class _ReadinessChecker {
       'backend-api-hardening',
       'Backend must keep configurable auth, CORS, revocable sessions, rate limiting, mutation validation, and protected metrics wired.',
       'Restore the auth/session/CORS/rate-limit/schema-validation/ops-metrics hardening before publishing.',
+    );
+    _requireContains(
+      'backend/bin/backup.dart',
+      const ['VACUUM INTO', 'PRAGMA quick_check', 'WAYFARE_BACKUP_DIR'],
+      'backend-backup-tool',
+      'Backend must keep a verified SQLite backup tool wired.',
+      'Restore the SQLite backup tool before publishing.',
     );
     _requireContains(
       'lib/main.dart',
@@ -182,6 +191,11 @@ class _ReadinessChecker {
       'WAYFARE_OPS_TOKEN',
       releaseOnlySeverity,
       'Use a unique random value with at least 32 characters for protected ops metrics.',
+    );
+    _expectPresent(
+      'WAYFARE_BACKUP_DIR',
+      releaseOnlySeverity,
+      'Set a durable backup directory outside the app build and runtime cache directories.',
     );
     _expectHttpsList(
       'WAYFARE_ALLOWED_ORIGINS',

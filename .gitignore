@@ -17,6 +17,10 @@ android/key.properties
 *.keystore
 
 backend/data/
+backend/backups/
+backups/
+*.backup.sqlite
+*.manifest.json
 
 .idea/
 *.iml

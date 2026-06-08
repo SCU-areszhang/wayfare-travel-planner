@@ -171,7 +171,11 @@ Future<void> _serveWeb(HttpRequest request, Directory webDirectory) async {
     return;
   }
 
-  request.response.headers.contentType = _contentType(file.path);
+  request.response.headers
+    ..contentType = _contentType(file.path)
+    ..set(HttpHeaders.cacheControlHeader, 'no-store, max-age=0')
+    ..set(HttpHeaders.pragmaHeader, 'no-cache')
+    ..set(HttpHeaders.expiresHeader, '0');
   await file.openRead().pipe(request.response);
 }
 

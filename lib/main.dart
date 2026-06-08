@@ -4285,7 +4285,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   }
 
   bool get _canShowWebAmap {
-    return kIsWeb && _amapJsKey.isNotEmpty && _amapJsSecurityCode.isNotEmpty;
+    return kIsWeb && _amapJsKey.isNotEmpty;
   }
 
   bool get _canShowNativeAmap {
@@ -4302,7 +4302,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
 
   String get _mapSetupMessage {
     if (kIsWeb) {
-      return 'AMap Web JS key is not configured. Build with --dart-define=AMAP_JS_KEY=your_js_key and --dart-define=AMAP_JS_SECURITY_CODE=your_security_code.';
+      return 'AMap Web JS key is not configured. Build with --dart-define=AMAP_JS_KEY=your_js_key. If your AMap key requires a security code, also provide --dart-define=AMAP_JS_SECURITY_CODE=your_security_code.';
     }
     if (defaultTargetPlatform == TargetPlatform.android) {
       return 'AMap Android key is not configured. Build with --dart-define=AMAP_ANDROID_KEY=your_android_key for package com.idm.travelplanner.';

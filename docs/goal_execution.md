@@ -444,6 +444,20 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added a local demo startup command that starts or reuses the Dart backend and Flutter Web static server, runs the local smoke check, prints the frontend/backend URLs, and keeps the demo available until interrupted.
 - Acceptance link: A local reviewer can start the basic demo without manually remembering backend environment variables or Python static-server commands.
 
+## AMap Key Integration Iteration
+
+### A03/A04/A05/A06/A07
+
+- Files: `lib/main.dart`, `lib/amap_canvas_web.dart`, `tool/local_demo.dart`, `tool/local_smoke.dart`, `test/local_smoke_test.dart`, `docs/goal_execution.md`
+- Change: Wired the local run to use the provided AMap Web Service and Web JS credentials from the external key file and supplied security code without committing secrets. Web AMap security code handling remains supported, while the Web map setup no longer blocks when the key file only provides the JS key. The local demo static server now sends no-store headers to avoid stale Flutter Web bundles during key swaps.
+- Acceptance link: Browser verification showed the AMap Web canvas, zoom controls, and AutoNavi attribution loading in Explore Map; backend `/search?q=西湖` returned live `amap_poi` results.
+
+### A06
+
+- Files: `tool/local_smoke.dart`, `test/local_smoke_test.dart`
+- Change: Expanded local smoke beyond login/search to cover itinerary creation, day creation, item creation, itinerary listing/cleanup, saved item creation/listing/cleanup, and feedback validation.
+- Acceptance link: `dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092` now proves the basic authenticated write/read paths before handoff.
+
 ## Verification Results
 
 Runnable:
@@ -525,6 +539,18 @@ Result: backend health, login, authenticated /me, search, and served Web shell p
 Local demo startup
 dart run tool/local_demo.dart
 Result: detected existing backend/frontend, ran the local smoke check, printed ready URLs, and stayed running until interrupted.
+```
+
+```text
+AMap backend search
+GET /search?q=西湖&limit=3
+Result: returned live `amap_poi` records from AMap Web Service.
+```
+
+```text
+AMap Web map
+In-app browser at http://127.0.0.1:8092/?amapFresh=2
+Result: Explore Map rendered the AMap canvas with map tiles, zoom controls, and AutoNavi attribution; browser logs had no errors or warnings.
 ```
 
 ```text

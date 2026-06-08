@@ -108,6 +108,13 @@ Future<LocalSmokeReport> runLocalSmoke({
         passed: false,
         detail: 'Skipped because auth-login failed.',
       ));
+      for (final name in _authenticatedCoreChecks) {
+        checks.add(LocalSmokeCheck(
+          name: name,
+          passed: false,
+          detail: 'Skipped because auth-login failed.',
+        ));
+      }
     } else {
       await record('auth-me', () async {
         final payload = await _requestJson(
@@ -123,6 +130,220 @@ Future<LocalSmokeReport> runLocalSmoke({
           throw StateError('Unexpected /me response: ${payload.body}');
         }
         return _StepResult(null, '/me returned $userIdentifier');
+      });
+
+      const tripId = 'smoke-local-demo';
+      final trip = await record<Map<String, Object?>>(
+        'itinerary-create',
+        () async {
+          final payload = await _requestJson(
+            client,
+            'POST',
+            _join(apiBase, '/itineraries'),
+            timeout,
+            bearerToken: token,
+            body: {
+              'id': tripId,
+              'title': 'Smoke Demo Trip',
+              'destination': '长沙',
+              'startDate': '2026-06-08',
+              'endDate': '2026-06-09',
+              'status': 'draft',
+              'days': <Object?>[],
+            },
+          );
+          final item = _objectAt(payload.json, 'item');
+          if (payload.statusCode != HttpStatus.created ||
+              item['id'] != tripId) {
+            throw StateError('Unexpected itinerary response: ${payload.body}');
+          }
+          return _StepResult(item, 'created $tripId');
+        },
+      );
+
+      Map<String, Object?>? day;
+      if (trip == null) {
+        checks.add(const LocalSmokeCheck(
+          name: 'itinerary-add-day',
+          passed: false,
+          detail: 'Skipped because itinerary-create failed.',
+        ));
+        checks.add(const LocalSmokeCheck(
+          name: 'itinerary-add-item',
+          passed: false,
+          detail: 'Skipped because itinerary-create failed.',
+        ));
+      } else {
+        day = await record<Map<String, Object?>>(
+          'itinerary-add-day',
+          () async {
+            final payload = await _requestJson(
+              client,
+              'POST',
+              _join(apiBase, '/itineraries/$tripId/days'),
+              timeout,
+              bearerToken: token,
+              body: {
+                'title': 'Day 1',
+                'date': '2026-06-08',
+                'city': '长沙',
+                'reminder': 'Local smoke check day',
+              },
+            );
+            final item = _objectAt(payload.json, 'item');
+            final dayId = item['id']?.toString() ?? '';
+            if (payload.statusCode != HttpStatus.created || dayId.isEmpty) {
+              throw StateError('Unexpected add-day response: ${payload.body}');
+            }
+            return _StepResult(item, 'added day $dayId');
+          },
+        );
+
+        final dayId = day?['id']?.toString();
+        if (dayId == null || dayId.isEmpty) {
+          checks.add(const LocalSmokeCheck(
+            name: 'itinerary-add-item',
+            passed: false,
+            detail: 'Skipped because itinerary-add-day failed.',
+          ));
+        } else {
+          await record('itinerary-add-item', () async {
+            final payload = await _requestJson(
+              client,
+              'POST',
+              _join(apiBase, '/itineraries/$tripId/days/$dayId/items'),
+              timeout,
+              bearerToken: token,
+              body: {
+                'time': '09:00',
+                'placeName': '橘子洲',
+                'activity': 'Walk the riverside route',
+                'note': 'Local smoke check item',
+                'status': 'draft',
+                'lat': 28.196,
+                'lng': 112.9552,
+              },
+            );
+            final item = _objectAt(payload.json, 'item');
+            final itemId = item['id']?.toString() ?? '';
+            if (payload.statusCode != HttpStatus.created || itemId.isEmpty) {
+              throw StateError('Unexpected add-item response: ${payload.body}');
+            }
+            return _StepResult(null, 'added item $itemId');
+          });
+        }
+      }
+
+      await record('itinerary-list', () async {
+        final payload = await _requestJson(
+          client,
+          'GET',
+          _join(apiBase, '/itineraries'),
+          timeout,
+          bearerToken: token,
+        );
+        final items = _listAt(payload.json, 'items');
+        if (payload.statusCode != HttpStatus.ok ||
+            !_containsId(items, tripId)) {
+          throw StateError('Created itinerary missing from list.');
+        }
+        return const _StepResult(null, 'listed $tripId');
+      });
+
+      await record('itinerary-cleanup', () async {
+        final payload = await _requestJson(
+          client,
+          'DELETE',
+          _join(apiBase, '/itineraries/$tripId'),
+          timeout,
+          bearerToken: token,
+        );
+        if (payload.statusCode != HttpStatus.ok ||
+            payload.json['deleted'] != tripId) {
+          throw StateError('Unexpected itinerary cleanup: ${payload.body}');
+        }
+        return const _StepResult(null, 'deleted $tripId');
+      });
+
+      final saved = await record<Map<String, Object?>>(
+        'saved-create',
+        () async {
+          final payload = await _requestJson(
+            client,
+            'POST',
+            _join(apiBase, '/saved'),
+            timeout,
+            bearerToken: token,
+            body: {
+              'type': 'destination',
+              'refId': 'spot-cs-orange',
+              'label': '橘子洲',
+              'folder': 'Smoke',
+            },
+          );
+          final item = _objectAt(payload.json, 'item');
+          final savedId = item['id']?.toString() ?? '';
+          if (payload.statusCode != HttpStatus.created || savedId.isEmpty) {
+            throw StateError('Unexpected saved response: ${payload.body}');
+          }
+          return _StepResult(item, 'created saved item $savedId');
+        },
+      );
+
+      final savedId = saved?['id']?.toString();
+      await record('saved-list', () async {
+        final payload = await _requestJson(
+          client,
+          'GET',
+          _join(apiBase, '/saved'),
+          timeout,
+          bearerToken: token,
+        );
+        final items = _listAt(payload.json, 'items');
+        if (payload.statusCode != HttpStatus.ok ||
+            savedId == null ||
+            !_containsId(items, savedId)) {
+          throw StateError('Created saved item missing from list.');
+        }
+        return _StepResult(null, 'listed saved item $savedId');
+      });
+
+      if (savedId == null || savedId.isEmpty) {
+        checks.add(const LocalSmokeCheck(
+          name: 'saved-cleanup',
+          passed: false,
+          detail: 'Skipped because saved-create failed.',
+        ));
+      } else {
+        await record('saved-cleanup', () async {
+          final payload = await _requestJson(
+            client,
+            'DELETE',
+            _join(apiBase, '/saved/$savedId'),
+            timeout,
+            bearerToken: token,
+          );
+          if (payload.statusCode != HttpStatus.ok ||
+              payload.json['deleted'] != savedId) {
+            throw StateError('Unexpected saved cleanup: ${payload.body}');
+          }
+          return _StepResult(null, 'deleted saved item $savedId');
+        });
+      }
+
+      await record('feedback-validation', () async {
+        final payload = await _requestJson(
+          client,
+          'POST',
+          _join(apiBase, '/feedback'),
+          timeout,
+          bearerToken: token,
+          body: {'category': 'smoke', 'description': ' '},
+        );
+        if (payload.statusCode != HttpStatus.badRequest) {
+          throw StateError('Expected feedback validation failure.');
+        }
+        return const _StepResult(null, 'empty feedback rejected with 400');
       });
     }
 
@@ -264,6 +485,40 @@ String? _userIdentifier(Map<String, Object?> json) {
   }
   return json['identifier']?.toString();
 }
+
+Map<String, Object?> _objectAt(Map<String, Object?> json, String key) {
+  final value = json[key];
+  if (value is Map) {
+    return value.map<String, Object?>(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+  }
+  throw StateError('Expected object field "$key".');
+}
+
+List<Object?> _listAt(Map<String, Object?> json, String key) {
+  final value = json[key];
+  if (value is List) {
+    return value;
+  }
+  throw StateError('Expected array field "$key".');
+}
+
+bool _containsId(List<Object?> items, String id) {
+  return items.any((item) => item is Map && item['id']?.toString() == id);
+}
+
+const _authenticatedCoreChecks = [
+  'itinerary-create',
+  'itinerary-add-day',
+  'itinerary-add-item',
+  'itinerary-list',
+  'itinerary-cleanup',
+  'saved-create',
+  'saved-list',
+  'saved-cleanup',
+  'feedback-validation',
+];
 
 class _StepResult<T> {
   const _StepResult(this.value, this.detail);

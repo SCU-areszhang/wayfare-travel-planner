@@ -380,7 +380,9 @@ const _bridgeScript = r'''
   function loadAmap(key, securityCode) {
     if (window.AMap) return Promise.resolve();
     if (loadPromise) return loadPromise;
-    window._AMapSecurityConfig = { securityJsCode: securityCode };
+    if (securityCode) {
+      window._AMapSecurityConfig = { securityJsCode: securityCode };
+    }
     loadPromise = new Promise(function (resolve, reject) {
       const script = document.createElement('script');
       script.async = true;

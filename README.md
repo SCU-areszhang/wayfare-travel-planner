@@ -70,6 +70,16 @@ The current seed data includes 4A+ scenic spots and urban-core attractions for f
 
 Android package/application id: `com.idm.travelplanner`
 
+For Web AMap testing:
+
+```powershell
+flutter build web --release --pwa-strategy=none --dart-define=AMAP_JS_KEY=your_web_js_key --dart-define=AMAP_JS_SECURITY_CODE=your_security_code
+```
+
+`AMAP_JS_SECURITY_CODE` is optional for local builds only when the AMap Web JS
+key does not require one. If AMap security is enabled for the key, provide the
+matching security code.
+
 Run with a real AMap Android key:
 
 ```powershell

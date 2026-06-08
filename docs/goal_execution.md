@@ -474,6 +474,14 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added a concise local demo runbook covering AMap startup, smoke verification, browser check, regression commands, secret handling, and current known limits.
 - Acceptance link: A reviewer can reproduce the basic local demo from one handoff document without reading the full execution log.
 
+## AMap Backend Verification Iteration
+
+### A05/A06/A07
+
+- Files: `tool/local_demo.dart`, `test/local_demo_test.dart`, `README.md`, `AGENTS.md`, `docs/local_demo_runbook.md`, `docs/goal_execution.md`
+- Change: `local_demo` now verifies backend live AMap Web Service search when `Wayfare_WebSvc` is supplied, and fails with a clear restart/port instruction if an already-running backend does not return `amap_poi` rows. Flutter Web rebuilds now pass AMap dart-defines through a temporary file instead of exposing keys in process arguments; documentation examples prefer key-file or environment-based secrets over command-line secrets.
+- Acceptance link: Reusing an old backend can no longer silently bypass the supplied AMap Web Service key during local handoff.
+
 ## Verification Results
 
 Runnable:

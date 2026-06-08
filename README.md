@@ -129,13 +129,14 @@ demo available until you stop the command.
 To rebuild Web from the external AMap key file before starting the demo:
 
 ```powershell
-dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt --amap-js-security-code=your_security_code
+dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt
 ```
 
 The key file is expected to contain `Wayfare_WebSvc api_key:<key>` for the
 backend Web Service key and `Wayfare_WebJS api_key:<key>` for the Web JS key.
 If the file also contains `Security_code:<code>`, the explicit
-`--amap-js-security-code` flag is not needed.
+`--amap-js-security-code` flag is not needed. Prefer the key file or
+`AMAP_JS_SECURITY_CODE` environment variable over command-line secrets.
 
 Then verify the basic local demo path:
 

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../tool/local_demo.dart';
@@ -30,4 +33,56 @@ Security_code:file-security
     expect(merged.webJsKey, 'file-js');
     expect(merged.webJsSecurityCode, 'override-security');
   });
+
+  test('verifies backend AMap search when live POI rows are returned',
+      () async {
+    final server = await _searchServer({
+      'items': [
+        {'id': 'amap-1', 'type': 'amap_poi', 'name': 'West Lake'},
+      ],
+    });
+    try {
+      final verified = await verifyAmapBackendSearch(
+        apiBase: Uri.parse('http://${server.address.address}:${server.port}'),
+        timeout: const Duration(seconds: 5),
+      );
+      expect(verified, isTrue);
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
+  test('rejects backend AMap search without live POI rows', () async {
+    final server = await _searchServer({
+      'items': [
+        {'id': 'seed-1', 'type': 'scenic_spot', 'name': 'Seed Spot'},
+      ],
+    });
+    try {
+      final verified = await verifyAmapBackendSearch(
+        apiBase: Uri.parse('http://${server.address.address}:${server.port}'),
+        timeout: const Duration(seconds: 5),
+      );
+      expect(verified, isFalse);
+    } finally {
+      await server.close(force: true);
+    }
+  });
+}
+
+Future<HttpServer> _searchServer(Map<String, Object?> responseBody) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((request) {
+    if (request.method == 'GET' && request.uri.path == '/search') {
+      request.response
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode(responseBody))
+        ..close();
+      return;
+    }
+    request.response
+      ..statusCode = HttpStatus.notFound
+      ..close();
+  });
+  return server;
 }

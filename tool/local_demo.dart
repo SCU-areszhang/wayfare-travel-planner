@@ -39,6 +39,7 @@ Future<void> main(List<String> arguments) async {
       processes.add(await _startBackend(config));
       await _waitForBackend(config.apiBase, config.timeout);
     }
+    await _verifyAmapBackendIfConfigured(config, backendAlreadyRunning);
 
     final webAlreadyRunning = await _webReady(config.webBase);
     if (webAlreadyRunning) {
@@ -73,6 +74,68 @@ Future<void> main(List<String> arguments) async {
     stderr.writeln('Wayfare local demo failed: $error');
     exitCode = 1;
     await closeStartedServices();
+  }
+}
+
+Future<void> _verifyAmapBackendIfConfigured(
+  _LocalDemoConfig config,
+  bool backendAlreadyRunning,
+) async {
+  if (config.amapKeys.webServiceKey == null ||
+      config.amapKeys.webServiceKey!.isEmpty) {
+    return;
+  }
+
+  final verified = await verifyAmapBackendSearch(
+    apiBase: config.apiBase,
+    timeout: config.timeout,
+  );
+  if (verified) {
+    stdout.writeln('Backend AMap Web Service search verified.');
+    return;
+  }
+
+  if (backendAlreadyRunning) {
+    throw StateError(
+      'Backend is already running at ${config.apiBase}, but it did not return '
+      'live AMap POI results. Stop that backend or choose another '
+      '--backend-port so local_demo can start it with Wayfare_WebSvc.',
+    );
+  }
+  throw StateError(
+    'Backend started at ${config.apiBase}, but AMap Web Service search did not '
+    'return live POI results.',
+  );
+}
+
+Future<bool> verifyAmapBackendSearch({
+  required Uri apiBase,
+  String query = '西湖',
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final client = HttpClient()..connectionTimeout = timeout;
+  try {
+    final uri = _joinUri(apiBase, '/search', {
+      'q': query,
+      'limit': '3',
+    });
+    final request = await client.getUrl(uri).timeout(timeout);
+    final response = await request.close().timeout(timeout);
+    final body = await response.transform(utf8.decoder).join().timeout(timeout);
+    if (response.statusCode != HttpStatus.ok) {
+      return false;
+    }
+    final json = jsonDecode(body);
+    if (json is! Map<String, Object?>) {
+      return false;
+    }
+    final items = json['items'];
+    return items is List &&
+        items.any((item) => item is Map && item['type'] == 'amap_poi');
+  } catch (_) {
+    return false;
+  } finally {
+    client.close(force: true);
   }
 }
 
@@ -195,28 +258,42 @@ Future<void> _buildWeb(_LocalDemoConfig config) async {
   }
 
   stdout.writeln('Building Flutter Web with local AMap configuration.');
-  final args = [
-    'build',
-    'web',
-    '--release',
-    '--no-pub',
-    '--pwa-strategy=none',
-    '--dart-define=WAYFARE_API_BASE=${config.apiBase}',
-    '--dart-define=AMAP_JS_KEY=$jsKey',
-    if (config.amapKeys.webJsSecurityCode case final code?)
-      '--dart-define=AMAP_JS_SECURITY_CODE=$code',
-  ];
-  final process = await Process.start(
-    'flutter',
-    args,
-    mode: ProcessStartMode.normal,
-  );
-  process.stdout.transform(utf8.decoder).listen(stdout.write);
-  process.stderr.transform(utf8.decoder).listen(stderr.write);
-  final exitCode = await process.exitCode;
-  if (exitCode != 0) {
-    throw StateError('Flutter Web build failed with exit code $exitCode.');
+  final defineDir = Directory.systemTemp.createTempSync('wayfare_defines_');
+  try {
+    final defineFile = File('${defineDir.path}/amap.env');
+    await defineFile.writeAsString(_dartDefineFile(config));
+    final args = [
+      'build',
+      'web',
+      '--release',
+      '--no-pub',
+      '--pwa-strategy=none',
+      '--dart-define-from-file=${defineFile.path}',
+    ];
+    final process = await Process.start(
+      'flutter',
+      args,
+      mode: ProcessStartMode.normal,
+    );
+    process.stdout.transform(utf8.decoder).listen(stdout.write);
+    process.stderr.transform(utf8.decoder).listen(stderr.write);
+    final exitCode = await process.exitCode;
+    if (exitCode != 0) {
+      throw StateError('Flutter Web build failed with exit code $exitCode.');
+    }
+  } finally {
+    defineDir.deleteSync(recursive: true);
   }
+}
+
+String _dartDefineFile(_LocalDemoConfig config) {
+  final buffer = StringBuffer()
+    ..writeln('WAYFARE_API_BASE=${config.apiBase}')
+    ..writeln('AMAP_JS_KEY=${config.amapKeys.webJsKey}');
+  if (config.amapKeys.webJsSecurityCode case final code?) {
+    buffer.writeln('AMAP_JS_SECURITY_CODE=$code');
+  }
+  return buffer.toString();
 }
 
 ContentType _contentType(String path) {
@@ -387,6 +464,15 @@ String? _optionValue(List<String> arguments, String name) {
   return null;
 }
 
+Uri _joinUri(Uri base, String path, [Map<String, String>? queryParameters]) {
+  final basePath =
+      base.path == '/' ? '' : base.path.replaceAll(RegExp(r'/$'), '');
+  return base.replace(
+    path: '$basePath$path',
+    queryParameters: queryParameters,
+  );
+}
+
 const _usage = '''
 Wayfare local demo
 
@@ -401,7 +487,7 @@ Options:
   --amap-key-file <path>      Local AMap key file, default ../高德.txt when present.
   --amap-web-service-key <k>  Backend AMap Web Service key override.
   --amap-web-js-key <k>       Web AMap JS key override.
-  --amap-js-security-code <c> Web AMap security code override.
+  --amap-js-security-code <c> Web AMap security code override; prefer key file or env for secrets.
   --identifier <value>        Login identifier for the smoke check.
   --query <value>             Search query for the smoke check.
   --timeout-seconds <number>  Startup and smoke timeout.

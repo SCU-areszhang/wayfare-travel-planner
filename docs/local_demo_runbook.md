@@ -21,7 +21,7 @@ The local demo covers:
 From the `IDM/` project root:
 
 ```bash
-dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt --amap-js-security-code=<security-code>
+dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt
 ```
 
 Expected key file fields:
@@ -33,14 +33,19 @@ Security_code:<security-code>
 ```
 
 If `Security_code` exists in the key file, the explicit
-`--amap-js-security-code` flag can be omitted.
+`--amap-js-security-code` flag can be omitted. Prefer the key file or
+`AMAP_JS_SECURITY_CODE` environment variable over command-line secrets.
 
 The command:
 
 - reads the external AMap key file without writing secrets to source files;
+- passes Flutter Web dart-defines through a temporary file instead of exposing
+  AMap keys in process arguments;
 - rebuilds Flutter Web with `AMAP_JS_KEY` and optional
   `AMAP_JS_SECURITY_CODE`;
 - starts or reuses the backend with `AMAP_WEB_SERVICE_KEY`;
+- verifies that the backend returns live `amap_poi` search results when
+  `Wayfare_WebSvc` is supplied;
 - starts or reuses the local no-cache Web server;
 - runs the local smoke check;
 - keeps the demo available until interrupted.

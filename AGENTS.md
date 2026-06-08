@@ -180,7 +180,7 @@ Local demo startup:
 
 ```bash
 dart run tool/local_demo.dart
-dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt --amap-js-security-code=<security-code>
+dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt
 ```
 
 Local demo smoke:

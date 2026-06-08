@@ -44,6 +44,7 @@ void main() {
       report.issues.map((issue) => issue.id),
       containsAll(<String>[
         'env-WAYFARE_AUTH_SECRET',
+        'env-WAYFARE_OPS_TOKEN',
         'env-WAYFARE_ALLOWED_ORIGINS',
         'env-WAYFARE_API_BASE',
         'env-AMAP_JS_KEY',
@@ -60,6 +61,7 @@ void main() {
       mode: ReadinessMode.release,
       environment: const <String, String>{
         'WAYFARE_AUTH_SECRET': '0123456789abcdef0123456789abcdef',
+        'WAYFARE_OPS_TOKEN': 'abcdef0123456789abcdef0123456789',
         'WAYFARE_ALLOWED_ORIGINS': 'https://app.wayfare-travel.com',
         'WAYFARE_API_BASE': 'https://api.wayfare-travel.com',
         'AMAP_JS_KEY': 'amap-js-key',
@@ -93,9 +95,12 @@ const env = 'WAYFARE_AUTH_SECRET WAYFARE_ALLOWED_ORIGINS';
 const sessions = 'sessions';
 const rateLimit = 'WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW';
 class RateLimiter {}
+class ServerTelemetry {}
 void revokeSession() {}
+void _requireOpsToken() {}
 void _validateCreateItinerary() {}
 void _validateCreateSavedItem() {}
+const opsToken = 'WAYFARE_OPS_TOKEN';
 String _sessionTokenHash(String token) => token;
 ''');
   _write(root, '.github/workflows/ci.yml', '''

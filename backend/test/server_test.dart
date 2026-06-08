@@ -98,6 +98,33 @@ void main() {
     expect(token.length, greaterThanOrEqualTo(32));
   });
 
+  test('ops metrics require token and expose aggregate counters', () async {
+    final missing = await server.get('/ops/metrics');
+    expect(missing.statusCode, HttpStatus.unauthorized);
+    expect(missing.json['error'], 'Ops bearer token is required');
+
+    final health = await server.get('/health');
+    expect(health.statusCode, HttpStatus.ok);
+
+    final invalid = await server.get('/ops/metrics', token: 'wrong-ops-token');
+    expect(invalid.statusCode, HttpStatus.unauthorized);
+    expect(invalid.json['error'], 'Ops bearer token is invalid');
+
+    final metrics = await server.get(
+      '/ops/metrics',
+      token: 'test-ops-token-for-metrics',
+    );
+    expect(metrics.statusCode, HttpStatus.ok);
+    expect(metrics.json['status'], 'ok');
+    expect(metrics.json['totalRequests'], greaterThanOrEqualTo(3));
+    final routes = metrics.json['routes'] as Map<String, Object?>;
+    final statuses = metrics.json['statuses'] as Map<String, Object?>;
+    expect(routes['GET /health'], greaterThanOrEqualTo(1));
+    expect(routes['GET /ops/metrics'], greaterThanOrEqualTo(2));
+    expect(statuses['200'], greaterThanOrEqualTo(1));
+    expect(statuses['401'], greaterThanOrEqualTo(2));
+  });
+
   test('auth endpoints return 429 after configured rate limit', () async {
     await server.close();
     server = await _ServerHarness.start(environmentOverrides: {
@@ -338,6 +365,7 @@ class _ServerHarness {
       environment: {
         'WAYFARE_DB_PATH': '${tempDir.path}/wayfare.sqlite',
         'WAYFARE_AUTH_SECRET': 'test-secret-for-signed-session-tokens',
+        'WAYFARE_OPS_TOKEN': 'test-ops-token-for-metrics',
         ...environmentOverrides,
       },
     );

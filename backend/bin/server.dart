@@ -7,6 +7,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 final _secureRandom = math.Random.secure();
 final _rateLimiter = RateLimiter.fromEnvironment(Platform.environment);
+final _telemetry = ServerTelemetry();
 
 void main(List<String> args) async {
   final port = int.tryParse(
@@ -30,16 +31,19 @@ void main(List<String> args) async {
 }
 
 Future<void> _handle(HttpRequest request, SqliteStore store) async {
+  final startedAt = DateTime.now().toUtc();
+  final path = request.uri.pathSegments;
+  final method = request.method;
+  final route = _routeTemplate(method, path);
   _applyCors(request);
   if (request.method == 'OPTIONS') {
     request.response.statusCode = HttpStatus.noContent;
     await request.response.close();
+    _telemetry.record(method, route, HttpStatus.noContent, startedAt);
     return;
   }
 
   try {
-    final path = request.uri.pathSegments;
-    final method = request.method;
     final rateLimit = _rateLimiter.check(request, method, path);
     if (!rateLimit.allowed) {
       return _tooManyRequests(request, rateLimit);
@@ -61,6 +65,11 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
         'userCount': store.userCount(),
         'auth': _authMode(),
       });
+    }
+
+    if (method == 'GET' && _matches(path, ['ops', 'metrics'])) {
+      _requireOpsToken(request);
+      return _json(request, _telemetry.snapshot());
     }
 
     if (method == 'POST' && _matches(path, ['auth', 'login'])) {
@@ -229,6 +238,8 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       {'error': 'Internal server error'},
       status: HttpStatus.internalServerError,
     );
+  } finally {
+    _telemetry.record(method, route, request.response.statusCode, startedAt);
   }
 }
 
@@ -519,6 +530,57 @@ class _RateLimitWindow {
 
   int count;
   final DateTime resetAt;
+}
+
+class ServerTelemetry {
+  ServerTelemetry() : startedAt = DateTime.now().toUtc();
+
+  final DateTime startedAt;
+  var totalRequests = 0;
+  var totalDurationMicros = 0;
+  final Map<String, int> routeCounts = {};
+  final Map<String, int> statusCounts = {};
+
+  void record(
+    String method,
+    String route,
+    int statusCode,
+    DateTime requestStartedAt,
+  ) {
+    totalRequests += 1;
+    final elapsedMicros =
+        DateTime.now().toUtc().difference(requestStartedAt).inMicroseconds;
+    totalDurationMicros += math.max(0, elapsedMicros);
+    routeCounts.update('$method $route', (value) => value + 1,
+        ifAbsent: () => 1);
+    statusCounts.update(
+      statusCode.toString(),
+      (value) => value + 1,
+      ifAbsent: () => 1,
+    );
+  }
+
+  Map<String, Object?> snapshot() {
+    final uptime = DateTime.now().toUtc().difference(startedAt);
+    final averageDurationMillis =
+        totalRequests == 0 ? 0.0 : totalDurationMicros / totalRequests / 1000;
+    return {
+      'status': 'ok',
+      'startedAt': startedAt.toIso8601String(),
+      'uptimeSeconds': uptime.inSeconds,
+      'totalRequests': totalRequests,
+      'averageDurationMillis':
+          double.parse(averageDurationMillis.toStringAsFixed(3)),
+      'routes': Map<String, int>.fromEntries(
+        routeCounts.entries.toList()
+          ..sort((left, right) => left.key.compareTo(right.key)),
+      ),
+      'statuses': Map<String, int>.fromEntries(
+        statusCounts.entries.toList()
+          ..sort((left, right) => left.key.compareTo(right.key)),
+      ),
+    };
+  }
 }
 
 class AuthSession {
@@ -2583,6 +2645,60 @@ bool _matches(List<String> path, List<String> target) {
   return true;
 }
 
+String _routeTemplate(String method, List<String> path) {
+  if (path.isEmpty) {
+    return '/';
+  }
+  if (_matches(path, ['health'])) {
+    return '/health';
+  }
+  if (_matches(path, ['ops', 'metrics'])) {
+    return '/ops/metrics';
+  }
+  if (path.first == 'auth') {
+    return '/auth/${path.length > 1 ? path[1] : ':action'}';
+  }
+  if (path.first == 'destinations') {
+    return path.length == 1 ? '/destinations' : '/destinations/:id';
+  }
+  if (_matches(path, ['recommendations'])) {
+    return '/recommendations';
+  }
+  if (_matches(path, ['search'])) {
+    return '/search';
+  }
+  if (path.length >= 2 && path.first == 'map' && path[1] == 'places') {
+    return '/map/places';
+  }
+  if (path.first == 'itineraries') {
+    if (path.length == 1) {
+      return '/itineraries';
+    }
+    if (path.length == 2) {
+      return '/itineraries/:id';
+    }
+    if (path.length == 3 && path[2] == 'days') {
+      return '/itineraries/:id/days';
+    }
+    if (path.length == 5 && path[2] == 'days' && path[4] == 'items') {
+      return '/itineraries/:id/days/:dayId/items';
+    }
+    if (path.length == 6 && path[2] == 'days' && path[4] == 'items') {
+      return path[5] == 'reorder'
+          ? '/itineraries/:id/days/:dayId/items/reorder'
+          : '/itineraries/:id/days/:dayId/items/:itemId';
+    }
+    return '/itineraries/*';
+  }
+  if (path.first == 'saved') {
+    return path.length == 1 ? '/saved' : '/saved/:id';
+  }
+  if (_matches(path, ['feedback'])) {
+    return '/feedback';
+  }
+  return '/${path.first}/*';
+}
+
 String _id(String prefix) {
   return '$prefix-${_randomUrlSafe(12)}';
 }
@@ -2646,6 +2762,35 @@ String _authSecret() {
     return configured;
   }
   return _localDevelopmentSecret;
+}
+
+void _requireOpsToken(HttpRequest request) {
+  final configured = Platform.environment['WAYFARE_OPS_TOKEN']?.trim();
+  if (configured == null || configured.isEmpty) {
+    throw const UnauthorizedException('Ops metrics are not configured');
+  }
+  final header = request.headers.value(HttpHeaders.authorizationHeader) ?? '';
+  const tokenPrefix = 'bearer ';
+  if (!header.toLowerCase().startsWith(tokenPrefix)) {
+    throw const UnauthorizedException('Ops bearer token is required');
+  }
+  final token = header.substring(tokenPrefix.length).trim();
+  if (!_constantTimeEquals(token, configured)) {
+    throw const UnauthorizedException('Ops bearer token is invalid');
+  }
+}
+
+bool _constantTimeEquals(String left, String right) {
+  final leftUnits = left.codeUnits;
+  final rightUnits = right.codeUnits;
+  var diff = leftUnits.length ^ rightUnits.length;
+  final length = math.max(leftUnits.length, rightUnits.length);
+  for (var index = 0; index < length; index++) {
+    final leftCode = index < leftUnits.length ? leftUnits[index] : 0;
+    final rightCode = index < rightUnits.length ? rightUnits[index] : 0;
+    diff |= leftCode ^ rightCode;
+  }
+  return diff == 0;
 }
 
 Duration _sessionDuration() {

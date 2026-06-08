@@ -386,6 +386,20 @@ search orange-isle equivalent: 2 matching scenic spot records
 - Change: Added backend regression coverage for itinerary and saved mutation validation and extended release readiness fixtures.
 - Acceptance link: `dart test` proves malformed itinerary/saved mutations return 400 with explicit errors.
 
+## Backend Observability Iteration
+
+### A05/A07
+
+- Files: `backend/bin/server.dart`, `backend/README.md`, `README.md`, `AGENTS.md`, `tool/release_readiness.dart`
+- Change: Added protected aggregate operational metrics at `GET /ops/metrics`, guarded by `WAYFARE_OPS_TOKEN`, plus route/status request counters, uptime, and average duration. Metrics use normalized route templates and omit bodies, identifiers, tokens, and concrete resource ids.
+- Acceptance link: Backend deployments now have a minimal monitoring surface without exposing user data.
+
+### A06
+
+- Files: `backend/test/server_test.dart`, `test/release_readiness_test.dart`
+- Change: Added regression coverage for missing/invalid ops token rejection and authorized aggregate metrics output; extended release readiness fixtures and production input checks for `WAYFARE_OPS_TOKEN`.
+- Acceptance link: `dart test` proves metrics are protected and aggregate counters are emitted.
+
 ## Verification Results
 
 Runnable:
@@ -454,7 +468,7 @@ backend: No issues found.
 
 ```text
 dart test
-backend: 10 tests passed.
+backend: 11 tests passed.
 ```
 
 ```text
@@ -464,7 +478,7 @@ backend: logout revokes token, opaque session token format covered.
 
 ```text
 Release readiness
-local mode: pass with warnings for missing production secrets, HTTPS origins, AMap keys, and Android signing inputs on this workstation.
+local mode: pass with warnings for missing production auth/ops secrets, HTTPS origins, AMap keys, and Android signing inputs on this workstation.
 release mode with complete production-like inputs: pass.
 ```
 
@@ -490,6 +504,6 @@ Residual risk:
 - Android toolchain is now usable for debug APK builds on this machine, but Android release/appbundle verification still needs real signing credentials and production AMap/API/auth values supplied by CI or a release workstation.
 - Android debug builds currently pass with a Flutter warning that the app and `dynamic_color` still apply Kotlin Gradle Plugin; future Flutter releases may require migration to Built-in Kotlin.
 - iOS/macOS builds still need full Xcode and CocoaPods.
-- Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, monitoring, distributed/shared rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
+- Backend is still SQLite-based and single-process; production deployment still needs migrations, backups, external log/metric shipping, distributed/shared rate limiting, and eventually a production identity provider for SSO/MFA/compliance needs.
 - Frontend search concurrency, map point confirmation UX, broader widget/E2E tests, and API parsing strictness remain future commercial hardening work.
 - PDF and DOCX layout fidelity could not be visually rendered because Poppler and LibreOffice are missing.

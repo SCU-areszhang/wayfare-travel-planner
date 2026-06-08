@@ -138,10 +138,13 @@ class _ReadinessChecker {
         'WAYFARE_RATE_LIMIT_AUTH_PER_WINDOW',
         '_validateCreateItinerary',
         '_validateCreateSavedItem',
+        'ServerTelemetry',
+        'WAYFARE_OPS_TOKEN',
+        '_requireOpsToken',
       ],
       'backend-api-hardening',
-      'Backend must keep configurable auth, CORS, revocable sessions, rate limiting, and mutation validation wired.',
-      'Restore the auth/session/CORS/rate-limit/schema-validation hardening before publishing.',
+      'Backend must keep configurable auth, CORS, revocable sessions, rate limiting, mutation validation, and protected metrics wired.',
+      'Restore the auth/session/CORS/rate-limit/schema-validation/ops-metrics hardening before publishing.',
     );
     _requireContains(
       'lib/main.dart',
@@ -174,6 +177,11 @@ class _ReadinessChecker {
       'WAYFARE_AUTH_SECRET',
       releaseOnlySeverity,
       'Use a unique random value with at least 32 characters.',
+    );
+    _expectStrongSecret(
+      'WAYFARE_OPS_TOKEN',
+      releaseOnlySeverity,
+      'Use a unique random value with at least 32 characters for protected ops metrics.',
     );
     _expectHttpsList(
       'WAYFARE_ALLOWED_ORIGINS',

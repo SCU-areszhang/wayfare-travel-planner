@@ -211,6 +211,9 @@ Test priorities:
 - Backend abuse controls must keep auth, search, and write rate limiting enabled
   by default; proxy-derived client IPs are allowed only when the proxy is
   trusted and overwrites forwarded headers.
+- Operational metrics must stay aggregate and protected by `WAYFARE_OPS_TOKEN`;
+  do not log or expose request bodies, tokens, identifiers, or concrete
+  resource ids.
 - Android release builds must use release signing credentials from environment
   variables or ignored `android/key.properties`; debug signing is not acceptable
   for release artifacts.

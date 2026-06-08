@@ -19,6 +19,7 @@ Database file: `backend/data/wayfare.sqlite`
 Production-oriented configuration:
 
 - `WAYFARE_AUTH_SECRET`: HMAC secret used to sign Bearer session tokens. Set this for any shared or deployed environment.
+- `WAYFARE_OPS_TOKEN`: Bearer token for protected operational metrics. Set this for any shared or deployed environment.
 - `WAYFARE_SESSION_DAYS`: session lifetime in days, clamped to 1-30. Default: `7`.
 - `WAYFARE_ALLOWED_ORIGINS`: comma-separated CORS allow-list. If unset, only loopback origins are allowed for local development.
 - `WAYFARE_BIND_HOST`: bind address. Default: `127.0.0.1`.
@@ -38,13 +39,22 @@ gate from the repository root:
 dart run tool/release_readiness.dart --mode release
 ```
 
-This check fails when the auth secret is weak, CORS origins are not HTTPS-only,
-the Flutter API base is still local, AMap keys are missing, or Android release
-signing inputs are unavailable.
+This check fails when the auth or ops secret is weak, CORS origins are not
+HTTPS-only, the Flutter API base is still local, AMap keys are missing, or
+Android release signing inputs are unavailable.
 
 Rate limiting is in-memory and per backend process. It is suitable for the
 single-node prototype and smoke deployments; clustered production deployments
 should move counters to a shared gateway, Redis, or platform rate limiter.
+
+Operational metrics are exposed at `GET /ops/metrics` and require:
+
+```text
+Authorization: Bearer <WAYFARE_OPS_TOKEN>
+```
+
+Metrics are aggregate route/status counters and timings. They intentionally do
+not include request bodies, identifiers, tokens, or concrete resource ids.
 
 ## Current Data Boundaries
 
@@ -61,6 +71,7 @@ should move counters to a shared gateway, Redis, or platform rate limiter.
 ## API Draft
 
 - `GET /health`
+- `GET /ops/metrics`
 - `POST /auth/send-code`
 - `POST /auth/login` with `identifier`, `phone`, or `email`. Unknown identifiers are automatically registered and signed in. The response includes an opaque Bearer `token` and `expiresAt`.
 - `POST /auth/logout`

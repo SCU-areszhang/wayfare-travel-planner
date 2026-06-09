@@ -303,6 +303,139 @@ class CityWalkTemplate {
   final List<CityWalkStop> stops;
 }
 
+class FeaturedScenicSpot {
+  const FeaturedScenicSpot({
+    required this.name,
+    required this.city,
+    required this.level,
+    required this.tags,
+    required this.summary,
+    required this.query,
+    required this.icon,
+  });
+
+  final String name;
+  final String city;
+  final String level;
+  final List<String> tags;
+  final String summary;
+  final String query;
+  final IconData icon;
+}
+
+const _featuredScenicTags = ['自然', '人文', '购物', '探险', '都市', '街巷'];
+
+const _featuredScenicSpots = [
+  FeaturedScenicSpot(
+    name: '黄山风景区',
+    city: '黄山',
+    level: '5A',
+    tags: ['自然', '探险'],
+    summary: '奇松、怪石、云海和山岳徒步路线。',
+    query: '黄山风景区',
+    icon: Icons.terrain_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '九寨沟景区',
+    city: '阿坝',
+    level: '5A',
+    tags: ['自然', '探险'],
+    summary: '高山湖泊、彩林和轻徒步观景线。',
+    query: '九寨沟景区',
+    icon: Icons.water_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '张家界武陵源',
+    city: '张家界',
+    level: '5A',
+    tags: ['自然', '探险'],
+    summary: '峰林峡谷、电梯索道和高视野观景台。',
+    query: '张家界武陵源',
+    icon: Icons.hiking_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '故宫博物院',
+    city: '北京',
+    level: '5A',
+    tags: ['人文', '都市'],
+    summary: '明清宫城、皇家建筑和博物馆动线。',
+    query: '故宫博物院',
+    icon: Icons.account_balance_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '秦始皇帝陵博物院',
+    city: '西安',
+    level: '5A',
+    tags: ['人文'],
+    summary: '兵马俑、秦文化和大型遗址博物馆。',
+    query: '秦始皇帝陵博物院',
+    icon: Icons.museum_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '南京夫子庙秦淮风光带',
+    city: '南京',
+    level: '5A',
+    tags: ['人文', '购物', '街巷'],
+    summary: '秦淮夜游、街巷小吃和历史商业街区。',
+    query: '南京夫子庙秦淮风光带',
+    icon: Icons.storefront_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '天津古文化街',
+    city: '天津',
+    level: '5A',
+    tags: ['购物', '街巷'],
+    summary: '津门民俗、传统商铺和老城街景。',
+    query: '天津古文化街',
+    icon: Icons.shopping_bag_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '平遥古城',
+    city: '晋中',
+    level: '5A',
+    tags: ['人文', '街巷'],
+    summary: '古城墙、票号院落和北方街巷肌理。',
+    query: '平遥古城',
+    icon: Icons.location_city_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '东方明珠',
+    city: '上海',
+    level: '5A',
+    tags: ['都市'],
+    summary: '浦江天际线、城市观景和夜景地标。',
+    query: '东方明珠',
+    icon: Icons.apartment_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '广州长隆旅游度假区',
+    city: '广州',
+    level: '5A',
+    tags: ['都市', '探险'],
+    summary: '主题乐园、亲子演艺和高密度度假动线。',
+    query: '广州长隆旅游度假区',
+    icon: Icons.attractions_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '乌镇景区',
+    city: '嘉兴',
+    level: '5A',
+    tags: ['街巷', '购物'],
+    summary: '江南水乡、夜游街巷和慢节奏商业体验。',
+    query: '乌镇景区',
+    icon: Icons.houseboat_outlined,
+  ),
+  FeaturedScenicSpot(
+    name: '丽江古城',
+    city: '丽江',
+    level: '5A',
+    tags: ['街巷', '人文', '购物'],
+    summary: '纳西古城街巷、夜游和小店集群。',
+    query: '丽江古城',
+    icon: Icons.alt_route_outlined,
+  ),
+];
+
 const _cityWalkTemplates = [
   CityWalkTemplate(
     id: 'citywalk-chengdu-kuanzhai',
@@ -764,6 +897,7 @@ class WayfareApiClient implements WayfareBackend {
       throw BackendException(
         body['error']?.toString() ??
             'Backend request failed with status ${response.statusCode}.',
+        statusCode: response.statusCode,
       );
     }
     return body;
@@ -771,12 +905,19 @@ class WayfareApiClient implements WayfareBackend {
 }
 
 class BackendException implements Exception {
-  const BackendException(this.message);
+  const BackendException(this.message, {this.statusCode});
 
   final String message;
+  final int? statusCode;
 
   @override
   String toString() => message;
+}
+
+bool _isExpiredSessionError(Object error) {
+  return error is BackendException &&
+      (error.statusCode == 401 ||
+          error.message.toLowerCase().contains('bearer token'));
 }
 
 AppUser _userFromJson(
@@ -1194,15 +1335,11 @@ class _LoginScreenState extends State<_LoginScreen> {
               shrinkWrap: true,
               padding: const EdgeInsets.all(24),
               children: [
-                Badge(
-                  alignment: Alignment.bottomRight,
-                  label: const Text('M3'),
-                  child: CircleAvatar(
-                    radius: 38,
-                    backgroundColor: scheme.primaryContainer,
-                    foregroundColor: scheme.onPrimaryContainer,
-                    child: const Icon(Icons.travel_explore, size: 36),
-                  ),
+                CircleAvatar(
+                  radius: 38,
+                  backgroundColor: scheme.primaryContainer,
+                  foregroundColor: scheme.onPrimaryContainer,
+                  child: const Icon(Icons.travel_explore, size: 36),
                 ),
                 const SizedBox(height: 22),
                 Text(
@@ -1433,6 +1570,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         _loadingData = false;
       });
     } catch (error) {
+      if (_isExpiredSessionError(error)) {
+        widget.onLogout();
+        return;
+      }
       if (!mounted) {
         return;
       }
@@ -1502,9 +1643,12 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   Widget? get _floatingActionButton {
     switch (_tab) {
       case AppTab.home:
+        final scheme = Theme.of(context).colorScheme;
         return FloatingActionButton.extended(
           tooltip: 'Plan actions',
           onPressed: _showHomeActionSheet,
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
           icon: const Icon(Icons.add),
           label: const Text('Plan'),
         );
@@ -1571,27 +1715,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   }
 
   Widget get _animatedBody {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0.02, 0.01),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
-        );
-      },
-      child: KeyedSubtree(
-        key: ValueKey(_tab),
-        child: _body,
-      ),
-    );
+    return _body;
   }
 
   int get _plannedStopCount {
@@ -1676,9 +1800,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         onRetry: _loadBackendData,
       );
     }
-    switch (_tab) {
-      case AppTab.home:
-        return _HomeScreen(
+    return IndexedStack(
+      index: _tab.index,
+      children: [
+        _HomeScreen(
           repository: _repository,
           onOpenMap: () => setState(() => _tab = AppTab.explore),
           onSearch: widget.backend.searchPlaces,
@@ -1689,9 +1814,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
             point: result.point,
           ),
           onCopyTemplate: _copyCityWalkTemplate,
-        );
-      case AppTab.explore:
-        return _ExploreScreen(
+          onFeaturedScenicSelected: _handleFeaturedScenicSpot,
+        ),
+        _ExploreScreen(
           places: _repository.mapPlaces,
           itineraryDays: _repository.itineraryDays,
           onPlaceSelected: _showPlaceSheet,
@@ -1704,9 +1829,8 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
             point: result.point,
           ),
           onRetry: _loadBackendData,
-        );
-      case AppTab.itinerary:
-        return _ItineraryScreen(
+        ),
+        _ItineraryScreen(
           days: _repository.itineraryDays,
           onAddDay: _showAddDaySheet,
           onEdit: (item) => _showEditItemSheet(item: item),
@@ -1715,9 +1839,8 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           onDuplicate: _duplicateItem,
           onOpenMap: () => setState(() => _tab = AppTab.explore),
           onSave: _saveActivePlan,
-        );
-      case AppTab.saved:
-        return _SavedScreen(
+        ),
+        _SavedScreen(
           trips: _repository.savedTrips,
           onAdd: (trip) => _showAddPlaceToDaySheet(
             trip.destination,
@@ -1726,9 +1849,8 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           ),
           onShowInfo: _showInfo,
           onRemove: _removeSavedTrip,
-        );
-      case AppTab.profile:
-        return _ProfileScreen(
+        ),
+        _ProfileScreen(
           repository: _repository,
           user: widget.user,
           themeSource: widget.themeSource,
@@ -1737,8 +1859,26 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           onFeedback: _showFeedbackSheet,
           onShowInfo: _showInfo,
           onLogout: widget.onLogout,
-        );
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleFeaturedScenicSpot(FeaturedScenicSpot spot) async {
+    final results = await _runBackendMutation(
+      () => widget.backend.searchPlaces(spot.query),
+    );
+    if (results == null || results.isEmpty) {
+      _toast('No search result found for ${spot.name}.');
+      return;
     }
+    final result = _bestSearchMatch(results, spot.query);
+    await _showAddPlaceToDaySheet(
+      result.name,
+      'Visit ${result.name}',
+      result.intro.trim().isEmpty ? spot.summary : result.intro,
+      point: result.point,
+    );
   }
 
   Future<void> _showAddPlaceToDaySheet(
@@ -1793,7 +1933,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       _toast('Create a day before adding itinerary items.');
       return;
     }
-    var selectedDayIndex = 0;
+    var selectedDayIndex = _nextAvailableDayIndex();
     var selectedTime = _parseTimeOfDay(null);
 
     showModalBottomSheet<void>(
@@ -1927,7 +2067,11 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     return true;
   }
 
-  Future<int?> _pickAndAddDayFromDropdown(BuildContext pickerContext) async {
+  Future<int?> _pickAndAddDayFromDropdown(
+    BuildContext pickerContext, {
+    String city = 'Current city',
+    String reminder = 'Review route before departure',
+  }) async {
     final picked = await showDatePicker(
       context: pickerContext,
       initialDate: DateTime.now(),
@@ -1947,13 +2091,30 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     final created = await _addDay(
       title: 'Day ${_repository.itineraryDays.length + 1}',
       date: _isoDate(picked),
-      city: 'Current city',
-      reminder: 'Review route before departure',
+      city: city,
+      reminder: reminder,
     );
     if (!created || !mounted) {
       return null;
     }
     return _repository.itineraryDays.length - 1;
+  }
+
+  int _nextAvailableDayIndex() {
+    final today = _dateOnly(DateTime.now());
+    var bestIndex = 0;
+    DateTime? bestDate;
+    for (var index = 0; index < _repository.itineraryDays.length; index++) {
+      final date = _parseIsoDate(_repository.itineraryDays[index].date);
+      if (date == null || date.isBefore(today)) {
+        continue;
+      }
+      if (bestDate == null || date.isBefore(bestDate)) {
+        bestDate = date;
+        bestIndex = index;
+      }
+    }
+    return bestIndex;
   }
 
   Future<void> _copyCityWalkTemplate(CityWalkTemplate template) async {
@@ -1962,35 +2123,18 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       _toast('Create or load a backend itinerary first.');
       return;
     }
-    final date = _isoDate(DateTime.now());
-    var dayIndex =
-        _repository.itineraryDays.indexWhere((day) => day.date == date);
-    ItineraryDay? targetDay =
-        dayIndex >= 0 ? _repository.itineraryDays[dayIndex] : null;
-
-    if (targetDay == null) {
-      targetDay = await _runBackendMutation(
-        () => widget.backend.addDay(
-          itineraryId,
-          title: template.title,
-          date: date,
-          city: template.city,
-          reminder: 'Copied from system CityWalk template',
-        ),
-      );
-      if (targetDay == null || !mounted) {
-        return;
-      }
-      setState(() => _repository.itineraryDays.add(targetDay!));
-      dayIndex = _repository.itineraryDays.length - 1;
+    final dayIndex = await _showCityWalkTargetDaySheet(template);
+    if (dayIndex == null || !mounted) {
+      return;
     }
+    final targetDay = _repository.itineraryDays[dayIndex];
 
     var copied = 0;
     for (final stop in template.stops) {
       final created = await _runBackendMutation(
         () => widget.backend.addItem(
           itineraryId,
-          targetDay!.id,
+          targetDay.id,
           time: stop.time,
           place: stop.place,
           activity: stop.activity,
@@ -2006,6 +2150,98 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     if (copied > 0) {
       _toast('Copied ${template.title} to your itinerary');
     }
+  }
+
+  Future<int?> _showCityWalkTargetDaySheet(CityWalkTemplate template) async {
+    int? selectedDayIndex =
+        _repository.itineraryDays.isEmpty ? null : _nextAvailableDayIndex();
+    return showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final days = _repository.itineraryDays;
+            return _SheetPadding(
+              bottomInset: MediaQuery.viewInsetsOf(context).bottom,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Copy CityWalk to Day',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    template.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  if (days.isEmpty)
+                    const _InfoTile(
+                      icon: Icons.calendar_month_outlined,
+                      text: 'Choose a date before copying this recommendation.',
+                    )
+                  else
+                    DropdownButtonFormField<int>(
+                      key: ValueKey(
+                        'citywalk-target-${selectedDayIndex ?? -1}-${days.length}',
+                      ),
+                      initialValue: selectedDayIndex,
+                      decoration: const InputDecoration(
+                        labelText: 'Target day',
+                        helperText:
+                            'Existing activities are kept; copied stops append at the end.',
+                      ),
+                      items: [
+                        for (var i = 0; i < days.length; i++)
+                          DropdownMenuItem<int>(
+                            value: i,
+                            child: Text('${days[i].title} | ${days[i].date}'),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setSheetState(() => selectedDayIndex = value),
+                    ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _syncing
+                          ? null
+                          : () async {
+                              final index = await _pickAndAddDayFromDropdown(
+                                context,
+                                city: template.city,
+                                reminder:
+                                    'Copied from system CityWalk template',
+                              );
+                              if (index != null && context.mounted) {
+                                setSheetState(() => selectedDayIndex = index);
+                              }
+                            },
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      label: Text(
+                          days.isEmpty ? 'Choose target date' : 'Add new day'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: selectedDayIndex == null || _syncing
+                        ? null
+                        : () => Navigator.pop(context, selectedDayIndex),
+                    icon: const Icon(Icons.content_copy),
+                    label: const Text('Copy to selected day'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _reorderItem(
@@ -2247,7 +2483,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     final inferredName =
         pick.name.trim().isEmpty ? 'Selected map point' : pick.name.trim();
     final address = pick.address?.trim();
-    var selectedDayIndex = 0;
+    var selectedDayIndex = _nextAvailableDayIndex();
     final place = TextEditingController(text: inferredName);
     var selectedTime = _parseTimeOfDay(null);
     final note = TextEditingController(
@@ -3298,6 +3534,7 @@ class _HomeScreen extends StatefulWidget {
     required this.onSearch,
     required this.onAddSearchResult,
     required this.onCopyTemplate,
+    required this.onFeaturedScenicSelected,
   });
 
   final TravelDataRepository repository;
@@ -3305,6 +3542,7 @@ class _HomeScreen extends StatefulWidget {
   final Future<List<TravelSearchResult>> Function(String query) onSearch;
   final ValueChanged<TravelSearchResult> onAddSearchResult;
   final ValueChanged<CityWalkTemplate> onCopyTemplate;
+  final Future<void> Function(FeaturedScenicSpot spot) onFeaturedScenicSelected;
 
   @override
   State<_HomeScreen> createState() => _HomeScreenState();
@@ -3315,12 +3553,35 @@ class _HomeScreenState extends State<_HomeScreen> {
   List<TravelSearchResult> _searchResults = [];
   var _searched = false;
   var _searching = false;
+  var _scenicSearching = false;
+  String? _scenicSearchingName;
   String? _searchError;
+  String _selectedScenicTag = _featuredScenicTags.first;
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openFeaturedScenicSpot(FeaturedScenicSpot spot) async {
+    if (_scenicSearching) {
+      return;
+    }
+    setState(() {
+      _scenicSearching = true;
+      _scenicSearchingName = spot.name;
+    });
+    try {
+      await widget.onFeaturedScenicSelected(spot);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _scenicSearching = false;
+          _scenicSearchingName = null;
+        });
+      }
+    }
   }
 
   Future<void> _runSearch() async {
@@ -3362,6 +3623,7 @@ class _HomeScreenState extends State<_HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return ListView(
+      key: const ValueKey('home-list'),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
         _TravelHeroPanel(
@@ -3374,6 +3636,7 @@ class _HomeScreenState extends State<_HomeScreen> {
         ),
         const SizedBox(height: 10),
         SearchQueryField(
+          key: const ValueKey('home-search-field'),
           controller: _searchController,
           enabled: !_searching,
           onSubmitted: (_) => _runSearch(),
@@ -3393,6 +3656,14 @@ class _HomeScreenState extends State<_HomeScreen> {
           ),
         ],
         const SizedBox(height: 16),
+        _FeaturedScenicSection(
+          selectedTag: _selectedScenicTag,
+          busy: _scenicSearching,
+          busyName: _scenicSearchingName,
+          onTagSelected: (tag) => setState(() => _selectedScenicTag = tag),
+          onSpotSelected: _openFeaturedScenicSpot,
+        ),
+        const SizedBox(height: 16),
         const _SectionHeader(
           title: 'System CityWalks',
           action: 'Copy to use',
@@ -3406,6 +3677,179 @@ class _HomeScreenState extends State<_HomeScreen> {
           const SizedBox(height: 10),
         ],
       ],
+    );
+  }
+}
+
+class _FeaturedScenicSection extends StatelessWidget {
+  const _FeaturedScenicSection({
+    required this.selectedTag,
+    required this.busy,
+    required this.busyName,
+    required this.onTagSelected,
+    required this.onSpotSelected,
+  });
+
+  final String selectedTag;
+  final bool busy;
+  final String? busyName;
+  final ValueChanged<String> onTagSelected;
+  final ValueChanged<FeaturedScenicSpot> onSpotSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final spots = _featuredScenicSpots
+        .where((spot) => spot.tags.contains(selectedTag))
+        .toList(growable: false);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionHeader(
+          title: 'Featured 5A Scenic Spots',
+          action: 'Curated tags',
+        ),
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final tag in _featuredScenicTags) ...[
+                FilterChip(
+                  label: Text(tag),
+                  selected: selectedTag == tag,
+                  onSelected: (_) => onTagSelected(tag),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final expanded = constraints.maxWidth >= 680;
+            final children = [
+              for (final spot in spots)
+                _FeaturedScenicCard(
+                  spot: spot,
+                  busy: busy && busyName == spot.name,
+                  onSelected: () => onSpotSelected(spot),
+                ),
+            ];
+            if (!expanded) {
+              return Column(
+                children: [
+                  for (final child in children) ...[
+                    child,
+                    if (child != children.last) const SizedBox(height: 8),
+                  ],
+                ],
+              );
+            }
+            return Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final child in children)
+                  SizedBox(
+                    width: (constraints.maxWidth - 10) / 2,
+                    child: child,
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _FeaturedScenicCard extends StatelessWidget {
+  const _FeaturedScenicCard({
+    required this.spot,
+    required this.busy,
+    required this.onSelected,
+  });
+
+  final FeaturedScenicSpot spot;
+  final bool busy;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card.outlined(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: busy ? null : onSelected,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  spot.icon,
+                  color: scheme.onPrimaryContainer,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      spot.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${spot.city} · ${spot.level} · ${spot.tags.join(" / ")}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      spot.summary,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox.square(
+                dimension: 42,
+                child: IconButton.filled(
+                  key: ValueKey('featured-scenic-add-${spot.query}'),
+                  tooltip: 'Add scenic spot',
+                  onPressed: busy ? null : onSelected,
+                  icon: busy
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3494,76 +3938,91 @@ class _SearchResultCard extends StatelessWidget {
         result.level.isNotEmpty && result.level.toLowerCase() != 'amap';
     return Card.outlined(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 480;
-            final details = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        result.name,
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
+        padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          result.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
                       ),
+                      if (shouldShowLevel) ...[
+                        const SizedBox(width: 8),
+                        _CompactLabel(text: result.level),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    _cleanSearchSubtitle(result.subtitle),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+                  if (result.intro.trim().isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      result.intro,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    if (shouldShowLevel)
-                      Chip(
-                        visualDensity: VisualDensity.compact,
-                        label: Text(result.level),
-                      ),
                   ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _cleanSearchSubtitle(result.subtitle),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  result.intro,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            );
-            final addButton = Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox.square(
+              dimension: 44,
+              child: IconButton.filled(
+                key: ValueKey('search-result-add-${result.id}'),
+                tooltip: 'Add to itinerary',
                 onPressed: onAdd,
                 icon: const Icon(Icons.add),
-                label: const Text('Quick Add'),
               ),
-            );
-            if (compact) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  details,
-                  const SizedBox(height: 12),
-                  addButton,
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(child: details),
-                const SizedBox(width: 12),
-                addButton,
-              ],
-            );
-          },
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _CompactLabel extends StatelessWidget {
+  const _CompactLabel({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w800,
+            ),
       ),
     );
   }
@@ -3628,6 +4087,7 @@ class _CityWalkTemplateCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 FilledButton.tonalIcon(
+                  key: ValueKey('copy-citywalk-${template.id}'),
                   onPressed: onCopy,
                   icon: const Icon(Icons.content_copy),
                   label: const Text('Copy'),
@@ -3744,6 +4204,116 @@ String _cleanSearchSubtitle(String value) {
       .trim();
 }
 
+TravelSearchResult _bestSearchMatch(
+  List<TravelSearchResult> results,
+  String query,
+) {
+  final normalizedQuery = _normalizeSearchText(query);
+  for (final result in results) {
+    if (_normalizeSearchText(result.name) == normalizedQuery) {
+      return result;
+    }
+  }
+  for (final result in results) {
+    final normalizedName = _normalizeSearchText(result.name);
+    if (normalizedName.contains(normalizedQuery) ||
+        normalizedQuery.contains(normalizedName)) {
+      return result;
+    }
+  }
+  return results.first;
+}
+
+String _normalizeSearchText(String value) {
+  return value.toLowerCase().replaceAll(RegExp(r'\s+'), '').trim();
+}
+
+class _UpcomingPlanItem {
+  const _UpcomingPlanItem({
+    required this.day,
+    required this.item,
+    required this.startsAt,
+  });
+
+  final ItineraryDay day;
+  final ItineraryItem item;
+  final DateTime startsAt;
+}
+
+_UpcomingPlanItem? _nextUpcomingPlanItem(
+  List<ItineraryDay> days, {
+  DateTime? now,
+}) {
+  final current = now ?? DateTime.now();
+  _UpcomingPlanItem? best;
+  for (final day in days) {
+    for (final item in day.items) {
+      final startsAt = _scheduledItemDateTime(day.date, item.time);
+      if (startsAt == null || startsAt.isBefore(current)) {
+        continue;
+      }
+      if (best == null || startsAt.isBefore(best.startsAt)) {
+        best = _UpcomingPlanItem(day: day, item: item, startsAt: startsAt);
+      }
+    }
+  }
+  return best;
+}
+
+DateTime? _scheduledItemDateTime(String date, String time) {
+  final parsedDate = _parseIsoDate(date);
+  if (parsedDate == null) {
+    return null;
+  }
+  final parsedTime = _tryParseTimeOfDay(time);
+  if (parsedTime == null) {
+    return DateTime(parsedDate.year, parsedDate.month, parsedDate.day, 23, 59);
+  }
+  return DateTime(
+    parsedDate.year,
+    parsedDate.month,
+    parsedDate.day,
+    parsedTime.hour,
+    parsedTime.minute,
+  );
+}
+
+DateTime? _parseIsoDate(String value) {
+  final parts = value.split('-');
+  if (parts.length != 3) {
+    return null;
+  }
+  final year = int.tryParse(parts[0]);
+  final month = int.tryParse(parts[1]);
+  final day = int.tryParse(parts[2]);
+  if (year == null || month == null || day == null) {
+    return null;
+  }
+  return DateTime(year, month, day);
+}
+
+DateTime _dateOnly(DateTime value) {
+  return DateTime(value.year, value.month, value.day);
+}
+
+TimeOfDay? _tryParseTimeOfDay(String value) {
+  final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(value.trim());
+  if (match == null) {
+    return null;
+  }
+  final hour = int.tryParse(match.group(1) ?? '');
+  final minute = int.tryParse(match.group(2) ?? '');
+  if (hour == null ||
+      minute == null ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59) {
+    return null;
+  }
+  return TimeOfDay(hour: hour, minute: minute);
+}
+
 class _AdaptiveNavigationRail extends StatelessWidget {
   const _AdaptiveNavigationRail({
     required this.selectedTab,
@@ -3818,15 +4388,7 @@ class _TravelHeroPanel extends StatelessWidget {
     final itemCount = repository.itineraryDays
         .fold<int>(0, (sum, day) => sum + day.items.length);
     final dayCount = repository.itineraryDays.length;
-    ItineraryItem? nextItem;
-    String? nextDay;
-    for (final day in repository.itineraryDays) {
-      if (day.items.isNotEmpty) {
-        nextItem = day.items.first;
-        nextDay = day.title;
-        break;
-      }
-    }
+    final nextPlan = _nextUpcomingPlanItem(repository.itineraryDays);
     return Card.filled(
       color: scheme.primaryContainer,
       child: Padding(
@@ -3886,7 +4448,7 @@ class _TravelHeroPanel extends StatelessWidget {
                 ),
               ],
             ),
-            if (nextItem != null) ...[
+            if (nextPlan != null) ...[
               const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -3903,14 +4465,15 @@ class _TravelHeroPanel extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '$nextDay | ${nextItem.time}',
+                            '${nextPlan.day.title} | ${nextPlan.day.date} | ${nextPlan.item.time}',
                             style: Theme.of(context)
                                 .textTheme
                                 .labelMedium
                                 ?.copyWith(color: scheme.onSurfaceVariant),
                           ),
                           Text(
-                            nextItem.place,
+                            nextPlan.item.place,
+                            key: const ValueKey('home-next-itinerary-place'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context)
@@ -4046,6 +4609,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: SearchQueryField(
+            key: const ValueKey('explore-search-field'),
             controller: _searchController,
             enabled: !_searching,
             onSubmitted: (_) => _runSearch(),
@@ -5004,7 +5568,7 @@ class _SavedScreen extends StatefulWidget {
 
 class _SavedScreenState extends State<_SavedScreen> {
   final _savedSearch = TextEditingController();
-  final folders = <String>{};
+  final _selectedFolders = <String>{};
 
   @override
   void dispose() {
@@ -5015,56 +5579,76 @@ class _SavedScreenState extends State<_SavedScreen> {
   @override
   Widget build(BuildContext context) {
     final query = _savedSearch.text.trim().toLowerCase();
+    final availableFolders = widget.trips
+        .map((trip) => trip.folder)
+        .where((folder) => folder.trim().isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
     final filteredTrips = widget.trips.where((trip) {
       final matchesSearch = query.isEmpty ||
           trip.destination.toLowerCase().contains(query) ||
           trip.folder.toLowerCase().contains(query) ||
           trip.dateRange.toLowerCase().contains(query);
-      final matchesFolder = folders.isEmpty || folders.contains(trip.folder);
+      final matchesFolder =
+          _selectedFolders.isEmpty || _selectedFolders.contains(trip.folder);
       return matchesSearch && matchesFolder;
     }).toList(growable: false);
     final upcomingTrips =
         filteredTrips.where((trip) => trip.upcoming).toList(growable: false);
     final pastTrips =
         filteredTrips.where((trip) => !trip.upcoming).toList(growable: false);
-    final filterActive = query.isNotEmpty || folders.isNotEmpty;
+    final filterActive = query.isNotEmpty || _selectedFolders.isNotEmpty;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
+        _SavedWorkspaceSummary(
+          total: widget.trips.length,
+          upcoming: widget.trips.where((trip) => trip.upcoming).length,
+          folders: availableFolders.length,
+        ),
+        const SizedBox(height: 12),
         SearchBar(
           controller: _savedSearch,
           leading: const Icon(Icons.search),
-          hintText: 'Search saved trips, folders, or destinations',
+          hintText: 'Search saved items',
           onChanged: (_) => setState(() {}),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         _SectionHeader(
-          title: 'Wishlists & Folders',
-          action: folders.isEmpty ? 'All folders' : folders.join(' | '),
+          title: 'Collections',
+          action: _selectedFolders.isEmpty
+              ? 'All folders'
+              : _selectedFolders.join(' | '),
         ),
         const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final folder in [
-              'Weekend',
-              'Family',
-              'Food',
-              'Nature',
-              'City Break'
-            ])
-              FilterChip(
-                label: Text(folder),
-                selected: folders.contains(folder),
-                onSelected: (selected) {
-                  setState(() {
-                    selected ? folders.add(folder) : folders.remove(folder);
-                  });
-                },
-              ),
-          ],
-        ),
+        if (availableFolders.isEmpty)
+          const _InfoTile(
+            icon: Icons.bookmark_border,
+            text: 'Saved destinations and copied trips will appear here.',
+          )
+        else
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final folder in availableFolders) ...[
+                  FilterChip(
+                    label: Text(folder),
+                    selected: _selectedFolders.contains(folder),
+                    onSelected: (selected) {
+                      setState(() {
+                        selected
+                            ? _selectedFolders.add(folder)
+                            : _selectedFolders.remove(folder);
+                      });
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ),
         const SizedBox(height: 16),
         if (filterActive && filteredTrips.isEmpty) ...[
           const _EmptyStateCard(
@@ -5075,7 +5659,10 @@ class _SavedScreenState extends State<_SavedScreen> {
           ),
           const SizedBox(height: 16),
         ],
-        const _SectionHeader(title: 'Upcoming Trips', action: 'Nearest first'),
+        _SectionHeader(
+          title: 'Upcoming',
+          action: '${upcomingTrips.length} items',
+        ),
         const SizedBox(height: 10),
         if (upcomingTrips.isEmpty)
           const _EmptyStateCard(
@@ -5095,11 +5682,14 @@ class _SavedScreenState extends State<_SavedScreen> {
               ),
               onRemove: () => widget.onRemove(trip),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
           ],
         ],
         const SizedBox(height: 16),
-        const _SectionHeader(title: 'Past Trips', action: 'Travel history'),
+        _SectionHeader(
+          title: 'Past & Archive',
+          action: '${pastTrips.length} items',
+        ),
         const SizedBox(height: 10),
         if (pastTrips.isEmpty)
           const _EmptyStateCard(
@@ -5118,10 +5708,95 @@ class _SavedScreenState extends State<_SavedScreen> {
               ),
               onRemove: () => widget.onRemove(trip),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
           ],
         ],
       ],
+    );
+  }
+}
+
+class _SavedWorkspaceSummary extends StatelessWidget {
+  const _SavedWorkspaceSummary({
+    required this.total,
+    required this.upcoming,
+    required this.folders,
+  });
+
+  final int total;
+  final int upcoming;
+  final int folders;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card.filled(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            _SavedMetric(
+              icon: Icons.bookmark,
+              value: '$total',
+              label: 'Saved',
+            ),
+            _SavedMetric(
+              icon: Icons.event_available_outlined,
+              value: '$upcoming',
+              label: 'Upcoming',
+            ),
+            _SavedMetric(
+              icon: Icons.folder_outlined,
+              value: '$folders',
+              label: 'Folders',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedMetric extends StatelessWidget {
+  const _SavedMetric({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 18, color: scheme.onPrimaryContainer),
+          const SizedBox(width: 6),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: scheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: scheme.onPrimaryContainer,
+                    ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -5142,54 +5817,80 @@ class _SavedTripCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final cardColor =
-        trip.upcoming ? scheme.primaryContainer : scheme.surfaceContainer;
-    final contentColor =
-        trip.upcoming ? scheme.onPrimaryContainer : scheme.onSurface;
-    return Card.filled(
-      color: cardColor,
+    return Card.outlined(
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: trip.upcoming
+                    ? scheme.primaryContainer
+                    : scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                trip.upcoming
+                    ? Icons.event_available_outlined
+                    : Icons.history_outlined,
+                color: trip.upcoming
+                    ? scheme.onPrimaryContainer
+                    : scheme.onSurfaceVariant,
+                size: 21,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
                     trip.destination,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: contentColor,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
                         ),
                   ),
-                ),
-                Chip(label: Text(trip.folder)),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    '${trip.dateRange} | ${trip.itemCount}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${trip.folder} | ${trip.lastUpdated}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              '${trip.dateRange} | ${trip.itemCount} | ${trip.lastUpdated}',
-              style: TextStyle(color: contentColor),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            const SizedBox(width: 6),
+            Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                OutlinedButton.icon(
+                IconButton(
+                  tooltip: 'View detail',
                   onPressed: onDetail,
                   icon: const Icon(Icons.search),
-                  label: const Text('View Detail'),
                 ),
-                OutlinedButton.icon(
+                IconButton.filledTonal(
+                  tooltip: 'Add to itinerary',
                   onPressed: onAdd,
                   icon: const Icon(Icons.add),
-                  label: const Text('Add to Itinerary'),
                 ),
-                OutlinedButton.icon(
+                IconButton(
+                  tooltip: 'Remove',
                   onPressed: onRemove,
                   icon: const Icon(Icons.delete_outline),
-                  label: const Text('Remove'),
                 ),
               ],
             ),

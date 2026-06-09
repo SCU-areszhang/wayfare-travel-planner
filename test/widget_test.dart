@@ -5,31 +5,252 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wayfare_travel_planner/main.dart';
 
 void main() {
-  testWidgets('Wayfare app logs in and renders home dashboard', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-
-    await tester.pumpWidget(WayfareApp(backend: const _FakeBackend()));
-    await tester.pumpAndSettle();
+  testWidgets('login screen omits M3 badge and renders home dashboard',
+      (tester) async {
+    final backend = _FakeBackend();
+    await _pumpLoggedOutApp(tester, backend);
 
     expect(find.text('Wayfare'), findsOneWidget);
-    expect(find.text('Continue'), findsOneWidget);
+    expect(find.text('M3'), findsNothing);
 
-    await tester.enterText(
-      find.byType(EditableText),
-      'demo@wayfare.local',
-    );
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
+    await _login(tester);
 
     expect(find.text('Test Trip'), findsOneWidget);
     expect(find.text('Find Places'), findsOneWidget);
-    expect(find.text('System CityWalks'), findsOneWidget);
+    expect(find.text('Featured 5A Scenic Spots'), findsOneWidget);
     expect(find.text('Plan'), findsOneWidget);
+  });
+
+  testWidgets('home search results use compact add buttons', (tester) async {
+    final backend = _FakeBackend();
+    await _pumpLoggedInApp(tester, backend);
+
+    final searchField = find.byKey(const ValueKey('home-search-field'));
+    await tester.enterText(
+      find.descendant(of: searchField, matching: find.byType(EditableText)),
+      'West Lake',
+    );
+    await tester.tap(
+      find.descendant(of: searchField, matching: find.byTooltip('Search')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Quick Add'), findsNothing);
+    expect(find.byKey(const ValueKey('search-result-add-spot-west')),
+        findsOneWidget);
+  });
+
+  testWidgets('citywalk copy asks for a target day and appends stops',
+      (tester) async {
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
+    final backend = _FakeBackend(
+      days: [
+        ItineraryDay(
+          id: 'day-future',
+          title: 'Day 1',
+          date: _testIsoDate(tomorrow),
+          city: 'Chengdu',
+          reminder: 'Existing schedule stays intact',
+          items: [
+            ItineraryItem(
+              id: 'item-existing',
+              time: '09:00',
+              place: 'Existing Stop',
+              activity: 'Already planned',
+              note: 'Keep this item',
+              status: 'Saved',
+            ),
+          ],
+        ),
+      ],
+    );
+    await _pumpLoggedInApp(tester, backend);
+
+    final copyButton =
+        find.byKey(const ValueKey('copy-citywalk-citywalk-chengdu-kuanzhai'));
+    await tester.tap(copyButton.first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy CityWalk to Day'), findsOneWidget);
+    expect(find.textContaining('Existing activities are kept'), findsOneWidget);
+
+    await tester.tap(find.text('Copy to selected day'));
+    await tester.pumpAndSettle();
+
+    expect(backend.addItemCalls, hasLength(3));
+    expect(backend.addItemCalls.every((call) => call.dayId == 'day-future'),
+        isTrue);
+  });
+
+  testWidgets('home hero selects nearest unfinished itinerary item',
+      (tester) async {
+    final now = DateTime.now();
+    final backend = _FakeBackend(
+      days: [
+        ItineraryDay(
+          id: 'day-past',
+          title: 'Past Day',
+          date: _testIsoDate(now.subtract(const Duration(days: 1))),
+          city: 'Past',
+          reminder: '',
+          items: [
+            ItineraryItem(
+              id: 'item-past',
+              time: '09:00',
+              place: 'Past Stop',
+              activity: 'Done',
+              note: '',
+              status: 'Saved',
+            ),
+          ],
+        ),
+        ItineraryDay(
+          id: 'day-future',
+          title: 'Future Day',
+          date: _testIsoDate(now.add(const Duration(days: 1))),
+          city: 'Future',
+          reminder: '',
+          items: [
+            ItineraryItem(
+              id: 'item-future',
+              time: '08:00',
+              place: 'Future Museum',
+              activity: 'Visit',
+              note: '',
+              status: 'Saved',
+            ),
+          ],
+        ),
+      ],
+    );
+    await _pumpLoggedInApp(tester, backend);
+
+    final nextPlace = tester.widget<Text>(
+      find.byKey(const ValueKey('home-next-itinerary-place')),
+    );
+    expect(nextPlace.data, 'Future Museum');
+  });
+
+  testWidgets('featured 5A spot searches silently before add sheet',
+      (tester) async {
+    final backend = _FakeBackend(
+      days: [
+        ItineraryDay(
+          id: 'day-target',
+          title: 'Day 1',
+          date: _testIsoDate(DateTime.now().add(const Duration(days: 1))),
+          city: 'Huangshan',
+          reminder: '',
+          items: [],
+        ),
+      ],
+    );
+    await _pumpLoggedInApp(tester, backend);
+
+    await tester.tap(find.text('黄山风景区').first);
+    await tester.pumpAndSettle();
+
+    expect(backend.searchQueries, contains('黄山风景区'));
+    expect(find.text('Add to Itinerary'), findsOneWidget);
+    expect(find.text('黄山风景区'), findsWidgets);
+  });
+
+  testWidgets('saved page renders workspace filters and compact actions',
+      (tester) async {
+    final backend = _FakeBackend(
+      savedTrips: const [
+        SavedTrip(
+          id: 'saved-weekend',
+          destination: 'West Lake',
+          dateRange: 'Saved destination',
+          itemCount: 'Backend record',
+          lastUpdated: 'Stored',
+          folder: 'Weekend',
+          upcoming: true,
+        ),
+        SavedTrip(
+          id: 'saved-history',
+          destination: 'Old Town',
+          dateRange: 'Archived',
+          itemCount: 'Backend record',
+          lastUpdated: 'Stored',
+          folder: 'Street',
+          upcoming: false,
+        ),
+      ],
+    );
+    await _pumpLoggedInApp(tester, backend);
+
+    await tester.tap(find.text('Saved').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Collections'), findsOneWidget);
+    expect(find.text('Weekend'), findsOneWidget);
+    expect(find.byTooltip('Add to itinerary'), findsWidgets);
+    expect(find.byTooltip('Remove'), findsWidgets);
   });
 }
 
+Future<void> _pumpLoggedOutApp(
+  WidgetTester tester,
+  _FakeBackend backend,
+) async {
+  SharedPreferences.setMockInitialValues({});
+  tester.view.physicalSize = const Size(1000, 1200);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  await tester.pumpWidget(WayfareApp(backend: backend));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpLoggedInApp(
+  WidgetTester tester,
+  _FakeBackend backend,
+) async {
+  await _pumpLoggedOutApp(tester, backend);
+  await _login(tester);
+}
+
+Future<void> _login(WidgetTester tester) async {
+  await tester.enterText(
+    find.byType(EditableText).first,
+    'demo@wayfare.local',
+  );
+  await tester.tap(find.text('Continue'));
+  await tester.pumpAndSettle();
+}
+
+String _testIsoDate(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
+class _AddItemCall {
+  const _AddItemCall({
+    required this.dayId,
+    required this.place,
+  });
+
+  final String dayId;
+  final String place;
+}
+
 class _FakeBackend implements WayfareBackend {
-  const _FakeBackend();
+  _FakeBackend({
+    List<ItineraryDay>? days,
+    List<SavedTrip>? savedTrips,
+  })  : days = days ?? <ItineraryDay>[],
+        savedTrips = savedTrips ?? <SavedTrip>[];
+
+  final List<ItineraryDay> days;
+  final List<SavedTrip> savedTrips;
+  final addItemCalls = <_AddItemCall>[];
+  final searchQueries = <String>[];
+  var _itemCounter = 0;
+  var _dayCounter = 0;
 
   @override
   void setSessionToken(String? token) {}
@@ -72,23 +293,26 @@ class _FakeBackend implements WayfareBackend {
           point: LatLng(30.2431, 120.1508),
         ),
       ],
-      itineraryDays: [],
-      mapPlaces: [],
-      savedTrips: [],
+      itineraryDays: days,
+      mapPlaces: const [],
+      savedTrips: savedTrips,
     );
   }
 
   @override
   Future<List<TravelSearchResult>> searchPlaces(String query) async {
-    return const [
+    searchQueries.add(query);
+    final normalizedName = query == 'West Lake' ? 'West Lake' : query;
+    final id = query == 'West Lake' ? 'spot-west' : 'spot-$query';
+    return [
       TravelSearchResult(
-        id: 'spot-test',
-        name: 'West Lake',
-        subtitle: 'Hangzhou · Xihu',
-        intro: 'Classic lakeside views and easy walks',
-        level: '4A',
+        id: id,
+        name: normalizedName,
+        subtitle: 'China · Scenic spot',
+        intro: 'Search-backed scenic recommendation',
+        level: '5A',
         sourceType: 'scenic_spot',
-        point: LatLng(30.2431, 120.1508),
+        point: const LatLng(30.1302, 118.1662),
       ),
     ];
   }
@@ -101,8 +325,9 @@ class _FakeBackend implements WayfareBackend {
     required String city,
     required String reminder,
   }) async {
+    _dayCounter += 1;
     return ItineraryDay(
-      id: 'day-test',
+      id: 'day-created-$_dayCounter',
       title: title,
       date: date,
       city: city,
@@ -121,8 +346,10 @@ class _FakeBackend implements WayfareBackend {
     required String note,
     LatLng? point,
   }) async {
+    _itemCounter += 1;
+    addItemCalls.add(_AddItemCall(dayId: dayId, place: place));
     return ItineraryItem(
-      id: 'item-test',
+      id: 'item-created-$_itemCounter',
       time: time,
       place: place,
       activity: activity,

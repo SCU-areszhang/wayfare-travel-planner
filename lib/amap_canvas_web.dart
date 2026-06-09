@@ -78,7 +78,7 @@ class AmapCanvas extends StatefulWidget {
   State<AmapCanvas> createState() => _AmapCanvasState();
 }
 
-class _AmapCanvasState extends State<AmapCanvas> {
+class _AmapCanvasState extends State<AmapCanvas> with WidgetsBindingObserver {
   static var _bridgeInstalled = false;
 
   late final String _viewType;
@@ -94,6 +94,7 @@ class _AmapCanvasState extends State<AmapCanvas> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _installBridge();
     _viewType = 'wayfare-amap-canvas-${identityHashCode(this)}';
     _elementId = 'wayfare-amap-element-${identityHashCode(this)}';
@@ -114,6 +115,17 @@ class _AmapCanvasState extends State<AmapCanvas> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _queueRender();
+  }
+
+  @override
+  void didChangeMetrics() {
+    _queueRender();
+  }
+
+  @override
   void didUpdateWidget(AmapCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncElementState();
@@ -122,6 +134,7 @@ class _AmapCanvasState extends State<AmapCanvas> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _statusSub?.cancel();
     _pickSub?.cancel();
     _markerSub?.cancel();
@@ -136,7 +149,10 @@ class _AmapCanvasState extends State<AmapCanvas> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        HtmlElementView(viewType: _viewType),
+        HtmlElementView(
+          key: ValueKey(_elementId),
+          viewType: _viewType,
+        ),
         if (_loading || _error != null)
           Positioned(
             left: 16,
@@ -497,9 +513,19 @@ const _bridgeScript = r'''
   function render(payload) {
     const element = document.getElementById(payload.elementId);
     if (!element) throw new Error('Map container is missing');
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      window.setTimeout(function () {
+        window.dispatchEvent(new CustomEvent('wayfare-amap-command', {
+          detail: JSON.stringify(payload)
+        }));
+      }, 80);
+      return;
+    }
     const state = states[payload.elementId] || createMap(payload);
     const map = state.map;
     state.pickMode = !!payload.pickMode;
+    try { map.resize(); } catch (_) {}
 
     const markerSignature = JSON.stringify({
       markers: (payload.markers || []).map(function (item) {
@@ -561,6 +587,9 @@ const _bridgeScript = r'''
       state.didFitView = true;
       try { map.setFitView(state.overlays, false, [64, 64, 64, 64]); } catch (_) {}
     }
+    window.requestAnimationFrame(function () {
+      try { map.resize(); } catch (_) {}
+    });
   }
 
   window.addEventListener('wayfare-amap-command', function (event) {

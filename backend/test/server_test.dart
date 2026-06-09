@@ -74,6 +74,21 @@ void main() {
         lessThanOrEqualTo(50));
   });
 
+  test('search returns selected 5A scenic spot seed data', () async {
+    final response = await server.get('/search?q=黄山风景区&limit=5');
+
+    expect(response.statusCode, HttpStatus.ok);
+    final items = response.json['items'] as List<Object?>;
+    expect(
+      items.whereType<Map<String, Object?>>(),
+      contains(
+        predicate<Map<String, Object?>>(
+          (item) => item['name'] == '黄山风景区' && item['level'] == '5A',
+        ),
+      ),
+    );
+  });
+
   test('user scoped endpoints require bearer tokens', () async {
     final me = await server.get('/me');
     expect(me.statusCode, HttpStatus.unauthorized);

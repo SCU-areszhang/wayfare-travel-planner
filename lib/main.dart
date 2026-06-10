@@ -1459,15 +1459,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         final wide = constraints.maxWidth >= 720;
         return Scaffold(
           appBar: AppBar(
-            toolbarHeight: 76,
-            scrolledUnderElevation: 1,
+            toolbarHeight: 68,
+            scrolledUnderElevation: 2,
             titleSpacing: 16,
-            title: _AppHeader(
-              title: _title,
-              subtitle: _subtitle,
-              stopCount: _plannedStopCount,
-              dayCount: _repository.itineraryDays.length,
-            ),
+            title: _AppHeader(title: _title),
             actions: [
               IconButton(
                 tooltip: 'Help',
@@ -1475,12 +1470,19 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                 onPressed: _showHelpCenter,
               ),
               Padding(
-                padding: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.only(left: 4, right: 16),
                 child: Tooltip(
                   message: widget.user.identifier,
                   child: CircleAvatar(
-                    radius: 18,
-                    child: Text(widget.user.initials),
+                    radius: 17,
+                    backgroundColor:
+                        Theme.of(context).colorScheme.primaryContainer,
+                    foregroundColor:
+                        Theme.of(context).colorScheme.onPrimaryContainer,
+                    child: Text(
+                      widget.user.initials,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                   ),
                 ),
               ),
@@ -1586,11 +1588,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     return _body;
   }
 
-  int get _plannedStopCount {
-    return _repository.itineraryDays
-        .fold<int>(0, (sum, day) => sum + day.items.length);
-  }
-
   Widget get _bottomNavigationBar {
     return NavigationBar(
       selectedIndex: _tab.index,
@@ -1639,21 +1636,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         return 'Saved Trips';
       case AppTab.profile:
         return 'Profile';
-    }
-  }
-
-  String get _subtitle {
-    switch (_tab) {
-      case AppTab.home:
-        return 'Search places, copy CityWalks, continue planning';
-      case AppTab.explore:
-        return 'Markers, route context, and bottom sheet details';
-      case AppTab.itinerary:
-        return 'Timeline with editable travel plan items';
-      case AppTab.saved:
-        return 'Upcoming, saved destinations, and history';
-      case AppTab.profile:
-        return 'Account, travel data, appearance, and support';
     }
   }
 
@@ -3163,94 +3145,68 @@ class _BackendLoadingPanel extends StatelessWidget {
 }
 
 class _AppHeader extends StatelessWidget {
-  const _AppHeader({
-    required this.title,
-    required this.subtitle,
-    required this.stopCount,
-    required this.dayCount,
-  });
+  const _AppHeader({required this.title});
 
   final String title;
-  final String subtitle;
-  final int stopCount;
-  final int dayCount;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 420;
-        return Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                Icons.travel_explore,
-                color: scheme.onPrimaryContainer,
-              ),
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [scheme.primary, scheme.tertiary],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Wayfare',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  if (!compact)
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                    ),
-                ],
-              ),
-            ),
-            if (!compact) ...[
-              const SizedBox(width: 10),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: scheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '$dayCount days | $stopCount stops',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSecondaryContainer,
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: scheme.primary.withValues(alpha: 0.25),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
             ],
-          ],
-        );
-      },
+          ),
+          child: Icon(
+            Icons.travel_explore,
+            color: scheme.onPrimary,
+            size: 21,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'WAYFARE',
+                maxLines: 1,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 2.8,
+                    ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1.1,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

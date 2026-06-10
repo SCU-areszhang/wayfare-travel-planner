@@ -3453,6 +3453,10 @@ class _HomeScreenState extends State<_HomeScreen> {
     }
   }
 
+  void _selectScenicTag(String tag) {
+    setState(() => _selectedScenicTag = tag);
+  }
+
   Future<void> _browseScenicTag(String tag) async {
     setState(() => _selectedScenicTag = tag);
     final spot = await showModalBottomSheet<FeaturedScenicSpot>(
@@ -3541,7 +3545,8 @@ class _HomeScreenState extends State<_HomeScreen> {
           selectedTag: _selectedScenicTag,
           busy: _scenicSearching,
           busyName: _scenicSearchingName,
-          onTagSelected: _browseScenicTag,
+          onTagSelected: _selectScenicTag,
+          onBrowseAll: () => _browseScenicTag(_selectedScenicTag),
           onSpotSelected: _openFeaturedScenicSpot,
         ),
         const SizedBox(height: 16),
@@ -3567,6 +3572,7 @@ class _FeaturedScenicSection extends StatelessWidget {
     required this.busy,
     required this.busyName,
     required this.onTagSelected,
+    required this.onBrowseAll,
     required this.onSpotSelected,
   });
 
@@ -3574,6 +3580,7 @@ class _FeaturedScenicSection extends StatelessWidget {
   final bool busy;
   final String? busyName;
   final ValueChanged<String> onTagSelected;
+  final VoidCallback onBrowseAll;
   final ValueChanged<FeaturedScenicSpot> onSpotSelected;
 
   @override
@@ -3586,7 +3593,7 @@ class _FeaturedScenicSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _SectionHeader(
+        const _SectionHeader(
           title: 'Featured 5A Scenic Spots',
         ),
         const SizedBox(height: 10),
@@ -3611,46 +3618,36 @@ class _FeaturedScenicSection extends StatelessWidget {
           const LinearProgressIndicator(),
         ],
         const SizedBox(height: 10),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final expanded = constraints.maxWidth >= 680;
-            final children = [
-              for (final spot in spots)
-                _FeaturedScenicCard(
-                  spot: spot,
-                  busy: busy && busyName == spot.name,
-                  onSelected: () => onSpotSelected(spot),
+        // Spot examples as Material 3 action chips: full label text, summary
+        // in the tooltip, and horizontal scrolling when the row overflows.
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final spot in spots) ...[
+                ActionChip(
+                  key: ValueKey('featured-scenic-add-${spot.query}'),
+                  avatar: busy && busyName == spot.name
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(spot.icon, size: 18),
+                  label: Text('${spot.name} · ${spot.city}'),
+                  tooltip: spot.summary,
+                  onPressed: busy ? null : () => onSpotSelected(spot),
                 ),
-            ];
-            if (!expanded) {
-              return Column(
-                children: [
-                  for (final child in children) ...[
-                    child,
-                    if (child != children.last) const SizedBox(height: 8),
-                  ],
-                ],
-              );
-            }
-            return Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final child in children)
-                  SizedBox(
-                    width: (constraints.maxWidth - 10) / 2,
-                    child: child,
-                  ),
+                if (spot != spots.last) const SizedBox(width: 8),
               ],
-            );
-          },
+            ],
+          ),
         ),
         const SizedBox(height: 6),
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
             key: const ValueKey('scenic-browse-all'),
-            onPressed: busy ? null : () => onTagSelected(selectedTag),
+            onPressed: busy ? null : onBrowseAll,
             icon: const Icon(Icons.travel_explore_outlined),
             label: Text('Browse all $tagTotal "$selectedTag" 5A spots'),
           ),
@@ -3766,96 +3763,6 @@ class _ScenicTagSheet extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FeaturedScenicCard extends StatelessWidget {
-  const _FeaturedScenicCard({
-    required this.spot,
-    required this.busy,
-    required this.onSelected,
-  });
-
-  final FeaturedScenicSpot spot;
-  final bool busy;
-  final VoidCallback onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card.outlined(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: busy ? null : onSelected,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-          child: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  spot.icon,
-                  color: scheme.onPrimaryContainer,
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      spot.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${spot.city} · ${spot.level} · ${spot.tags.join(" / ")}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      spot.summary,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox.square(
-                dimension: 42,
-                child: IconButton.filled(
-                  key: ValueKey('featured-scenic-add-${spot.query}'),
-                  tooltip: 'Add scenic spot',
-                  onPressed: busy ? null : onSelected,
-                  icon: busy
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.add),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

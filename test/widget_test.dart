@@ -147,7 +147,9 @@ void main() {
     );
     await _pumpLoggedInApp(tester, backend);
 
-    await tester.tap(find.text('黄山风景区').first);
+    await tester.tap(
+      find.byKey(const ValueKey('featured-scenic-add-黄山风景区')),
+    );
     await tester.pumpAndSettle();
 
     expect(backend.searchQueries, contains('黄山风景区'));
@@ -155,7 +157,7 @@ void main() {
     expect(find.text('黄山风景区'), findsWidgets);
   });
 
-  testWidgets('scenic tag chip pops up the full 5A list for that tag',
+  testWidgets('scenic tag chip swaps examples and browse-all opens the list',
       (tester) async {
     final backend = _FakeBackend(
       days: [
@@ -172,6 +174,14 @@ void main() {
     await _pumpLoggedInApp(tester, backend);
 
     await tester.tap(find.byKey(const ValueKey('scenic-tag-街巷')));
+    await tester.pumpAndSettle();
+
+    // Selecting a tag only swaps the inline example chips; no sheet yet.
+    expect(find.text('街巷 · 5A Scenic Spots'), findsNothing);
+    expect(find.byKey(const ValueKey('featured-scenic-add-平遥古城')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('scenic-browse-all')));
     await tester.pumpAndSettle();
 
     expect(find.text('街巷 · 5A Scenic Spots'), findsOneWidget);

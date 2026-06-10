@@ -24,3 +24,6 @@ backups/
 
 .idea/
 *.iml
+
+# Local AMap key file (copy AmapExample.csv and fill in real keys).
+Amap.csv

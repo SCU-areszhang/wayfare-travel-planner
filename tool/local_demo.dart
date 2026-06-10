@@ -253,7 +253,9 @@ Future<void> _buildWeb(_LocalDemoConfig config) async {
   final jsKey = config.amapKeys.webJsKey;
   if (jsKey == null || jsKey.isEmpty) {
     throw StateError(
-      'Missing Wayfare_WebJS key. Provide --amap-key-file or --amap-web-js-key.',
+      'Missing Wayfare_WebJS key. Put an Amap.csv next to pubspec.yaml '
+      '(copy AmapExample.csv and fill in real keys), or pass '
+      '--amap-key-file / --amap-web-js-key.',
     );
   }
 
@@ -346,10 +348,10 @@ class _LocalDemoConfig {
         8080;
     final webPort =
         int.tryParse(_optionValue(arguments, '--web-port') ?? '') ?? 8092;
-    final keyFile = File(
-      _optionValue(arguments, '--amap-key-file') ?? '../高德.txt',
-    );
-    final fileKeys = keyFile.existsSync()
+    final keyFileOption = _optionValue(arguments, '--amap-key-file');
+    final keyFile =
+        keyFileOption != null ? File(keyFileOption) : _defaultAmapKeyFile();
+    final fileKeys = keyFile != null && keyFile.existsSync()
         ? parseAmapLocalKeys(keyFile.readAsStringSync())
         : const AmapLocalKeys();
     final env = Platform.environment;
@@ -439,7 +441,7 @@ AmapLocalKeys parseAmapLocalKeys(String content) {
       continue;
     }
     final securityMatch = RegExp(
-      r'^(?:Security_code|security_code|AMAP_JS_SECURITY_CODE|securityJsCode)\s*[:=]\s*(\S+)',
+      r'^(?:Security_code|security_code|AMAP_JS_SECURITY_CODE|securityJsCode)\s*[:=,]\s*(\S+)',
     ).firstMatch(trimmed);
     if (securityMatch != null) {
       webJsSecurityCode = securityMatch.group(1);
@@ -454,8 +456,23 @@ AmapLocalKeys parseAmapLocalKeys(String content) {
 }
 
 String? _extractApiKey(String line) {
-  final match = RegExp(r'api_key\s*[:=]\s*(\S+)').firstMatch(line);
-  return match?.group(1);
+  final labeled = RegExp(r'api_key\s*[:=]\s*(\S+)').firstMatch(line);
+  if (labeled != null) {
+    return labeled.group(1);
+  }
+  // AmapExample.csv format: "Wayfare_WebJS, <key>".
+  final csv = RegExp(r',\s*([^\s,]+)\s*$').firstMatch(line);
+  return csv?.group(1);
+}
+
+File? _defaultAmapKeyFile() {
+  for (final path in const ['Amap.csv', '../Amap.csv', '../高德.txt']) {
+    final file = File(path);
+    if (file.existsSync()) {
+      return file;
+    }
+  }
+  return null;
 }
 
 String? _optionValue(List<String> arguments, String name) {
@@ -491,7 +508,7 @@ Options:
   --web-port <port>           Frontend static server port, default 8092.
   --web-dir <path>            Built Flutter Web directory, default build/web.
   --rebuild-web               Rebuild Flutter Web before serving.
-  --amap-key-file <path>      Local AMap key file, default ../高德.txt when present.
+  --amap-key-file <path>      Local AMap key file; by default tries Amap.csv, ../Amap.csv, then ../高德.txt.
   --amap-web-service-key <k>  Backend AMap Web Service key override.
   --amap-web-js-key <k>       Web AMap JS key override.
   --amap-js-security-code <c> Web AMap security code override; prefer key file or env for secrets.

@@ -18,6 +18,18 @@ Security_code:cccccccccccccccccccccccccccccccc
     expect(keys.webJsSecurityCode, 'cccccccccccccccccccccccccccccccc');
   });
 
+  test('parses AmapExample.csv style comma-separated key files', () {
+    final keys = parseAmapLocalKeys('''
+Wayfare_WebSvc, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Wayfare_WebJS, bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Security_code, cccccccccccccccccccccccccccccccc
+''');
+
+    expect(keys.webServiceKey, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(keys.webJsKey, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+    expect(keys.webJsSecurityCode, 'cccccccccccccccccccccccccccccccc');
+  });
+
   test('CLI and environment style keys override parsed file keys', () {
     final fileKeys = parseAmapLocalKeys('''
 Wayfare_WebSvc api_key:file-service

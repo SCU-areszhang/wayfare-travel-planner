@@ -142,14 +142,18 @@ flutter run --dart-define=AMAP_ANDROID_KEY=your_amap_android_key
 (PowerShell: same commands on one line, or use a backtick `` ` `` instead of
 `\` for line continuation.)
 
-Alternatively keep keys in a local text file **outside the repo** and let the
-demo tool read it (see below). Expected file format, one entry per line:
+Alternatively keep keys in a local **`Amap.csv`** next to `pubspec.yaml`
+(git-ignored — copy [`AmapExample.csv`](AmapExample.csv) and fill in real
+values). The demo tool picks it up automatically:
 
 ```text
-Wayfare_WebSvc	api_key:<backend web-service key>
-Wayfare_WebJS	api_key:<web js key>
-Security_code:<js security code>
+Wayfare_WebSvc, <backend web-service key>
+Wayfare_WebJS, <web js key>
+Security_code, <js security code>
 ```
+
+The legacy `Wayfare_WebJS api_key:<key>` / `Security_code:<code>` format is
+still accepted.
 
 ## Web Release Build
 
@@ -194,7 +198,8 @@ Rebuild the web bundle from your local key file first (it also restores the
 self-destruct service worker automatically):
 
 ```bash
-dart run tool/local_demo.dart --rebuild-web --amap-key-file=path/to/amap-keys.txt
+dart run tool/local_demo.dart --rebuild-web                 # auto-detects Amap.csv
+dart run tool/local_demo.dart --rebuild-web --amap-key-file=path/to/keys.csv
 ```
 
 Standalone smoke check (backend health, login, authenticated `/me`, scenic

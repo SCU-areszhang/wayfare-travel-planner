@@ -5463,8 +5463,17 @@ class _ItineraryScreen extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               buildDefaultDragHandles: false,
               itemCount: day.items.length,
-              onReorderItem: (oldIndex, newIndex) =>
-                  onReorder(day, oldIndex, newIndex),
+              // onReorderItem only exists on Flutter >=3.42, and this project
+              // must still build on 3.41 stable. Stay on the deprecated
+              // onReorder, which reports newIndex before the dragged item is
+              // removed and therefore needs the classic adjustment.
+              // ignore: deprecated_member_use
+              onReorder: (oldIndex, newIndex) {
+                if (newIndex > oldIndex) {
+                  newIndex -= 1;
+                }
+                onReorder(day, oldIndex, newIndex);
+              },
               itemBuilder: (context, index) {
                 final item = day.items[index];
                 return Padding(

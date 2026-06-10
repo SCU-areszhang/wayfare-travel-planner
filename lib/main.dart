@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'amap_canvas_stub.dart' if (dart.library.html) 'amap_canvas_web.dart';
 import 'login_identifier_field_stub.dart'
     if (dart.library.html) 'login_identifier_field_web.dart';
+import 'scenic_spots_5a.dart';
 import 'search_query_field_stub.dart'
     if (dart.library.html) 'search_query_field_web.dart';
 
@@ -302,139 +303,6 @@ class CityWalkTemplate {
   final String duration;
   final List<CityWalkStop> stops;
 }
-
-class FeaturedScenicSpot {
-  const FeaturedScenicSpot({
-    required this.name,
-    required this.city,
-    required this.level,
-    required this.tags,
-    required this.summary,
-    required this.query,
-    required this.icon,
-  });
-
-  final String name;
-  final String city;
-  final String level;
-  final List<String> tags;
-  final String summary;
-  final String query;
-  final IconData icon;
-}
-
-const _featuredScenicTags = ['自然', '人文', '购物', '探险', '都市', '街巷'];
-
-const _featuredScenicSpots = [
-  FeaturedScenicSpot(
-    name: '黄山风景区',
-    city: '黄山',
-    level: '5A',
-    tags: ['自然', '探险'],
-    summary: '奇松、怪石、云海和山岳徒步路线。',
-    query: '黄山风景区',
-    icon: Icons.terrain_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '九寨沟景区',
-    city: '阿坝',
-    level: '5A',
-    tags: ['自然', '探险'],
-    summary: '高山湖泊、彩林和轻徒步观景线。',
-    query: '九寨沟景区',
-    icon: Icons.water_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '张家界武陵源',
-    city: '张家界',
-    level: '5A',
-    tags: ['自然', '探险'],
-    summary: '峰林峡谷、电梯索道和高视野观景台。',
-    query: '张家界武陵源',
-    icon: Icons.hiking_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '故宫博物院',
-    city: '北京',
-    level: '5A',
-    tags: ['人文', '都市'],
-    summary: '明清宫城、皇家建筑和博物馆动线。',
-    query: '故宫博物院',
-    icon: Icons.account_balance_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '秦始皇帝陵博物院',
-    city: '西安',
-    level: '5A',
-    tags: ['人文'],
-    summary: '兵马俑、秦文化和大型遗址博物馆。',
-    query: '秦始皇帝陵博物院',
-    icon: Icons.museum_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '南京夫子庙秦淮风光带',
-    city: '南京',
-    level: '5A',
-    tags: ['人文', '购物', '街巷'],
-    summary: '秦淮夜游、街巷小吃和历史商业街区。',
-    query: '南京夫子庙秦淮风光带',
-    icon: Icons.storefront_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '天津古文化街',
-    city: '天津',
-    level: '5A',
-    tags: ['购物', '街巷'],
-    summary: '津门民俗、传统商铺和老城街景。',
-    query: '天津古文化街',
-    icon: Icons.shopping_bag_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '平遥古城',
-    city: '晋中',
-    level: '5A',
-    tags: ['人文', '街巷'],
-    summary: '古城墙、票号院落和北方街巷肌理。',
-    query: '平遥古城',
-    icon: Icons.location_city_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '东方明珠',
-    city: '上海',
-    level: '5A',
-    tags: ['都市'],
-    summary: '浦江天际线、城市观景和夜景地标。',
-    query: '东方明珠',
-    icon: Icons.apartment_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '广州长隆旅游度假区',
-    city: '广州',
-    level: '5A',
-    tags: ['都市', '探险'],
-    summary: '主题乐园、亲子演艺和高密度度假动线。',
-    query: '广州长隆旅游度假区',
-    icon: Icons.attractions_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '乌镇景区',
-    city: '嘉兴',
-    level: '5A',
-    tags: ['街巷', '购物'],
-    summary: '江南水乡、夜游街巷和慢节奏商业体验。',
-    query: '乌镇景区',
-    icon: Icons.houseboat_outlined,
-  ),
-  FeaturedScenicSpot(
-    name: '丽江古城',
-    city: '丽江',
-    level: '5A',
-    tags: ['街巷', '人文', '购物'],
-    summary: '纳西古城街巷、夜游和小店集群。',
-    query: '丽江古城',
-    icon: Icons.alt_route_outlined,
-  ),
-];
 
 const _cityWalkTemplates = [
   CityWalkTemplate(
@@ -1243,7 +1111,7 @@ class _WayfareAppState extends State<WayfareApp> {
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         margin: EdgeInsets.zero,
       ),
       navigationBarTheme: const NavigationBarThemeData(
@@ -1817,6 +1685,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           onFeaturedScenicSelected: _handleFeaturedScenicSpot,
         ),
         _ExploreScreen(
+          active: _tab == AppTab.explore,
           places: _repository.mapPlaces,
           itineraryDays: _repository.itineraryDays,
           onPlaceSelected: _showPlaceSheet,
@@ -3319,7 +3188,7 @@ class _AppHeader extends StatelessWidget {
               height: 42,
               decoration: BoxDecoration(
                 color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
                 Icons.travel_explore,
@@ -3556,7 +3425,7 @@ class _HomeScreenState extends State<_HomeScreen> {
   var _scenicSearching = false;
   String? _scenicSearchingName;
   String? _searchError;
-  String _selectedScenicTag = _featuredScenicTags.first;
+  String _selectedScenicTag = featuredScenicTags.first;
 
   @override
   void dispose() {
@@ -3581,6 +3450,19 @@ class _HomeScreenState extends State<_HomeScreen> {
           _scenicSearchingName = null;
         });
       }
+    }
+  }
+
+  Future<void> _browseScenicTag(String tag) async {
+    setState(() => _selectedScenicTag = tag);
+    final spot = await showModalBottomSheet<FeaturedScenicSpot>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => _ScenicTagSheet(tag: tag),
+    );
+    if (spot != null && mounted) {
+      await _openFeaturedScenicSpot(spot);
     }
   }
 
@@ -3660,7 +3542,7 @@ class _HomeScreenState extends State<_HomeScreen> {
           selectedTag: _selectedScenicTag,
           busy: _scenicSearching,
           busyName: _scenicSearchingName,
-          onTagSelected: (tag) => setState(() => _selectedScenicTag = tag),
+          onTagSelected: _browseScenicTag,
           onSpotSelected: _openFeaturedScenicSpot,
         ),
         const SizedBox(height: 16),
@@ -3698,23 +3580,26 @@ class _FeaturedScenicSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final spots = _featuredScenicSpots
+    final spots = featuredScenicSpots
         .where((spot) => spot.tags.contains(selectedTag))
         .toList(growable: false);
+    final tagTotal =
+        all5AScenicSpots.where((spot) => spot.tags.contains(selectedTag)).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionHeader(
+        _SectionHeader(
           title: 'Featured 5A Scenic Spots',
-          action: 'Curated tags',
+          action: '${all5AScenicSpots.length} built in',
         ),
         const SizedBox(height: 10),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              for (final tag in _featuredScenicTags) ...[
+              for (final tag in featuredScenicTags) ...[
                 FilterChip(
+                  key: ValueKey('scenic-tag-$tag'),
                   label: Text(tag),
                   selected: selectedTag == tag,
                   onSelected: (_) => onTagSelected(tag),
@@ -3724,6 +3609,10 @@ class _FeaturedScenicSection extends StatelessWidget {
             ],
           ),
         ),
+        if (busy) ...[
+          const SizedBox(height: 10),
+          const LinearProgressIndicator(),
+        ],
         const SizedBox(height: 10),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -3759,7 +3648,129 @@ class _FeaturedScenicSection extends StatelessWidget {
             );
           },
         ),
+        const SizedBox(height: 6),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const ValueKey('scenic-browse-all'),
+            onPressed: busy ? null : () => onTagSelected(selectedTag),
+            icon: const Icon(Icons.travel_explore_outlined),
+            label: Text('Browse all $tagTotal "$selectedTag" 5A spots'),
+          ),
+        ),
       ],
+    );
+  }
+}
+
+class _ScenicTagSheet extends StatelessWidget {
+  const _ScenicTagSheet({required this.tag});
+
+  final String tag;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final spots = all5AScenicSpots
+        .where((spot) => spot.tags.contains(tag))
+        .toList(growable: false);
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.72;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$tag · 5A Scenic Spots',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Tap a spot to search it and pick a day & time.',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _CompactLabel(text: '${spots.length}'),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+                itemCount: spots.length,
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 1, indent: 64, endIndent: 16),
+                itemBuilder: (context, index) {
+                  final spot = spots[index];
+                  return ListTile(
+                    key: ValueKey('scenic-sheet-${spot.name}'),
+                    dense: true,
+                    visualDensity:
+                        const VisualDensity(horizontal: 0, vertical: -1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    leading: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: scheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        spot.icon,
+                        size: 20,
+                        color: scheme.onSecondaryContainer,
+                      ),
+                    ),
+                    title: Text(
+                      spot.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(
+                      '${spot.city} · ${spot.summary}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: IconButton.filledTonal(
+                      tooltip: 'Add scenic spot',
+                      iconSize: 20,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => Navigator.pop(context, spot),
+                      icon: const Icon(Icons.add),
+                    ),
+                    onTap: () => Navigator.pop(context, spot),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -3780,7 +3791,7 @@ class _FeaturedScenicCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Card.outlined(
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
         onTap: busy ? null : onSelected,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
@@ -3791,7 +3802,7 @@ class _FeaturedScenicCard extends StatelessWidget {
                 height: 38,
                 decoration: BoxDecoration(
                   color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   spot.icon,
@@ -3902,6 +3913,7 @@ class _SearchResultsPanel extends StatelessWidget {
       );
     }
 
+    final visibleResults = results.take(8).toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -3910,20 +3922,28 @@ class _SearchResultsPanel extends StatelessWidget {
           action: '${results.length} results',
         ),
         const SizedBox(height: 8),
-        for (final result in results.take(8)) ...[
-          _SearchResultCard(
-            result: result,
-            onAdd: () => onAdd(result),
+        Card.outlined(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (final result in visibleResults) ...[
+                _SearchResultRow(
+                  result: result,
+                  onAdd: () => onAdd(result),
+                ),
+                if (result != visibleResults.last)
+                  const Divider(height: 1, indent: 12, endIndent: 12),
+              ],
+            ],
           ),
-          const SizedBox(height: 8),
-        ],
+        ),
       ],
     );
   }
 }
 
-class _SearchResultCard extends StatelessWidget {
-  const _SearchResultCard({
+class _SearchResultRow extends StatelessWidget {
+  const _SearchResultRow({
     required this.result,
     required this.onAdd,
   });
@@ -3936,68 +3956,61 @@ class _SearchResultCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final shouldShowLevel =
         result.level.isNotEmpty && result.level.toLowerCase() != 'amap';
-    return Card.outlined(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          result.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
+    final subtitle = _cleanSearchSubtitle(result.subtitle);
+    final intro = result.intro.trim();
+    final detail = intro.isEmpty ? subtitle : '$subtitle · $intro';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        result.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
-                      if (shouldShowLevel) ...[
-                        const SizedBox(width: 8),
-                        _CompactLabel(text: result.level),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _cleanSearchSubtitle(result.subtitle),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                  ),
-                  if (result.intro.trim().isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      result.intro,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    if (shouldShowLevel) ...[
+                      const SizedBox(width: 6),
+                      _CompactLabel(text: result.level),
+                    ],
                   ],
-                ],
-              ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
             ),
-            const SizedBox(width: 10),
-            SizedBox.square(
-              dimension: 44,
-              child: IconButton.filled(
-                key: ValueKey('search-result-add-${result.id}'),
-                tooltip: 'Add to itinerary',
-                onPressed: onAdd,
-                icon: const Icon(Icons.add),
-              ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox.square(
+            dimension: 36,
+            child: IconButton.filled(
+              key: ValueKey('search-result-add-${result.id}'),
+              tooltip: 'Add to itinerary',
+              padding: EdgeInsets.zero,
+              iconSize: 20,
+              onPressed: onAdd,
+              icon: const Icon(Icons.add),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -4056,7 +4069,7 @@ class _CityWalkTemplateCard extends StatelessWidget {
                   height: 46,
                   decoration: BoxDecoration(
                     color: scheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     Icons.directions_walk,
@@ -4454,7 +4467,7 @@ class _TravelHeroPanel extends StatelessWidget {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: scheme.surface.withValues(alpha: 0.62),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
@@ -4465,7 +4478,7 @@ class _TravelHeroPanel extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${nextPlan.day.title} | ${nextPlan.day.date} | ${nextPlan.item.time}',
+                            'Next up · ${nextPlan.day.title} | ${nextPlan.day.date} | ${nextPlan.item.time}',
                             style: Theme.of(context)
                                 .textTheme
                                 .labelMedium
@@ -4487,6 +4500,27 @@ class _TravelHeroPanel extends StatelessWidget {
                   ],
                 ),
               ),
+            ] else if (itemCount > 0) ...[
+              const SizedBox(height: 14),
+              Container(
+                key: const ValueKey('home-all-plans-finished'),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: scheme.surface.withValues(alpha: 0.62),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.task_alt, color: scheme.primary),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'All planned stops are completed. Add a new day to keep traveling.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ],
         ),
@@ -4499,6 +4533,7 @@ enum _MapMode { explore, planned }
 
 class _ExploreScreen extends StatefulWidget {
   const _ExploreScreen({
+    required this.active,
     required this.places,
     required this.itineraryDays,
     required this.onPlaceSelected,
@@ -4508,6 +4543,9 @@ class _ExploreScreen extends StatefulWidget {
     required this.onRetry,
   });
 
+  /// True while this tab is the visible IndexedStack child. The AMap canvas
+  /// uses it to re-render after being detached from the DOM.
+  final bool active;
   final List<MapPlace> places;
   final List<ItineraryDay> itineraryDays;
   final ValueChanged<MapPlace> onPlaceSelected;
@@ -4692,7 +4730,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(16),
               child: Stack(
                 children: [
                   if (_canShowWebAmap)
@@ -4704,6 +4742,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                       selectedPoint: _selectedMapPoint,
                       pickMode: _pickMode,
                       interactive: !_mapInputLocked,
+                      visible: widget.active,
                       primaryColor: scheme.primary,
                       onMarkerTapped: _handleWebMarkerTap,
                       onPointPicked: (pick) {
@@ -5250,7 +5289,7 @@ class _MapStatusBar extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: scheme.surface.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Padding(
@@ -5729,22 +5768,31 @@ class _SavedWorkspaceSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card.filled(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: IntrinsicHeight(
         child: Row(
           children: [
             _SavedMetric(
-              icon: Icons.bookmark,
+              icon: Icons.bookmark_outline,
               value: '$total',
               label: 'Saved',
             ),
+            VerticalDivider(
+                width: 1, indent: 6, endIndent: 6, color: scheme.outlineVariant),
             _SavedMetric(
               icon: Icons.event_available_outlined,
               value: '$upcoming',
               label: 'Upcoming',
             ),
+            VerticalDivider(
+                width: 1, indent: 6, endIndent: 6, color: scheme.outlineVariant),
             _SavedMetric(
               icon: Icons.folder_outlined,
               value: '$folders',
@@ -5775,22 +5823,26 @@ class _SavedMetric extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 18, color: scheme.onPrimaryContainer),
-          const SizedBox(width: 6),
+          CircleAvatar(
+            radius: 15,
+            backgroundColor: scheme.secondaryContainer,
+            child: Icon(icon, size: 16, color: scheme.onSecondaryContainer),
+          ),
+          const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
                 value,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: scheme.onPrimaryContainer,
                       fontWeight: FontWeight.w800,
                     ),
               ),
               Text(
                 label,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: scheme.onPrimaryContainer,
+                      color: scheme.onSurfaceVariant,
                     ),
               ),
             ],
@@ -5818,83 +5870,91 @@ class _SavedTripCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Card.outlined(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: trip.upcoming
-                    ? scheme.primaryContainer
-                    : scheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                trip.upcoming
-                    ? Icons.event_available_outlined
-                    : Icons.history_outlined,
-                color: trip.upcoming
-                    ? scheme.onPrimaryContainer
-                    : scheme.onSurfaceVariant,
-                size: 21,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    trip.destination,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${trip.dateRange} | ${trip.itemCount}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${trip.folder} | ${trip.lastUpdated}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 6),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: 'View detail',
-                  onPressed: onDetail,
-                  icon: const Icon(Icons.search),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onDetail,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: trip.upcoming
+                      ? scheme.primaryContainer
+                      : scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                IconButton.filledTonal(
+                child: Icon(
+                  trip.upcoming
+                      ? Icons.event_available_outlined
+                      : Icons.history_outlined,
+                  color: trip.upcoming
+                      ? scheme.onPrimaryContainer
+                      : scheme.onSurfaceVariant,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            trip.destination,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        if (trip.folder.trim().isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          _CompactLabel(text: trip.folder),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${trip.dateRange} · ${trip.itemCount}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox.square(
+                dimension: 36,
+                child: IconButton.filledTonal(
                   tooltip: 'Add to itinerary',
+                  padding: EdgeInsets.zero,
+                  iconSize: 20,
                   onPressed: onAdd,
                   icon: const Icon(Icons.add),
                 ),
-                IconButton(
+              ),
+              SizedBox.square(
+                dimension: 36,
+                child: IconButton(
                   tooltip: 'Remove',
+                  padding: EdgeInsets.zero,
+                  iconSize: 20,
                   onPressed: onRemove,
                   icon: const Icon(Icons.delete_outline),
                 ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );

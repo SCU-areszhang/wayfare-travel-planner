@@ -37,6 +37,7 @@ Non-goals:
 The current implementation is intentionally compact:
 
 - `lib/main.dart` contains domain models, API client, state, screens, and shared widgets.
+- `lib/scenic_spots_5a.dart` holds the built-in national 5A scenic spot catalogue and its tag metadata.
 - `lib/*_web.dart` and `lib/*_stub.dart` provide conditional Web and non-Web behavior.
 - `backend/bin/server.dart` contains routes, SQLite schema, seed data, and store methods.
 - `third_party/` contains local AMap Flutter packages and should be treated as vendor code.

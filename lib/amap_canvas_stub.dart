@@ -53,6 +53,7 @@ class AmapCanvas extends StatelessWidget {
     required this.primaryColor,
     required this.onMarkerTapped,
     required this.onPointPicked,
+    this.visible = true,
     super.key,
   });
 
@@ -66,6 +67,7 @@ class AmapCanvas extends StatelessWidget {
   final Color primaryColor;
   final ValueChanged<String> onMarkerTapped;
   final ValueChanged<AmapPickResult> onPointPicked;
+  final bool visible;
 
   @override
   Widget build(BuildContext context) {

@@ -155,6 +155,34 @@ void main() {
     expect(find.text('黄山风景区'), findsWidgets);
   });
 
+  testWidgets('scenic tag chip pops up the full 5A list for that tag',
+      (tester) async {
+    final backend = _FakeBackend(
+      days: [
+        ItineraryDay(
+          id: 'day-target',
+          title: 'Day 1',
+          date: _testIsoDate(DateTime.now().add(const Duration(days: 1))),
+          city: 'Pingyao',
+          reminder: '',
+          items: [],
+        ),
+      ],
+    );
+    await _pumpLoggedInApp(tester, backend);
+
+    await tester.tap(find.byKey(const ValueKey('scenic-tag-街巷')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('街巷 · 5A Scenic Spots'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('scenic-sheet-平遥古城')));
+    await tester.pumpAndSettle();
+
+    expect(backend.searchQueries, contains('平遥古城'));
+    expect(find.text('Add to Itinerary'), findsOneWidget);
+  });
+
   testWidgets('saved page renders workspace filters and compact actions',
       (tester) async {
     final backend = _FakeBackend(
@@ -185,7 +213,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Collections'), findsOneWidget);
-    expect(find.text('Weekend'), findsOneWidget);
+    // The folder name shows on the filter chip and as the card label.
+    expect(find.text('Weekend'), findsWidgets);
     expect(find.byTooltip('Add to itinerary'), findsWidgets);
     expect(find.byTooltip('Remove'), findsWidgets);
   });

@@ -60,6 +60,7 @@ class AmapCanvas extends StatefulWidget {
     required this.primaryColor,
     required this.onMarkerTapped,
     required this.onPointPicked,
+    this.visible = true,
     super.key,
   });
 
@@ -73,6 +74,11 @@ class AmapCanvas extends StatefulWidget {
   final Color primaryColor;
   final ValueChanged<String> onMarkerTapped;
   final ValueChanged<AmapPickResult> onPointPicked;
+
+  /// Whether the hosting page is currently shown. While hidden inside an
+  /// IndexedStack the platform view is detached from the DOM, so render
+  /// commands are deferred and replayed when the canvas becomes visible again.
+  final bool visible;
 
   @override
   State<AmapCanvas> createState() => _AmapCanvasState();
@@ -161,7 +167,7 @@ class _AmapCanvasState extends State<AmapCanvas> with WidgetsBindingObserver {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: Theme.of(context).colorScheme.outlineVariant,
                 ),
@@ -268,7 +274,10 @@ class _AmapCanvasState extends State<AmapCanvas> with WidgetsBindingObserver {
     _renderQueued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _renderQueued = false;
-      if (!mounted || _element == null) {
+      if (!mounted || _element == null || !widget.visible) {
+        // Hidden tabs have a zero-size detached container; rendering would
+        // spin in the bridge retry loop. didUpdateWidget queues a fresh
+        // render when the canvas becomes visible again.
         return;
       }
       setState(() {
@@ -445,6 +454,7 @@ const _bridgeScript = r'''
     }
     const state = {
       map: map,
+      container: element,
       geocoder: null,
       overlays: [],
       pickMode: !!payload.pickMode,
@@ -522,7 +532,15 @@ const _bridgeScript = r'''
       }, 80);
       return;
     }
-    const state = states[payload.elementId] || createMap(payload);
+    let state = states[payload.elementId];
+    if (state && state.container !== element) {
+      // Flutter recreated the platform view element; the old map instance is
+      // bound to a detached node and can never paint again.
+      try { state.map.destroy(); } catch (_) {}
+      delete states[payload.elementId];
+      state = null;
+    }
+    state = state || createMap(payload);
     const map = state.map;
     state.pickMode = !!payload.pickMode;
     try { map.resize(); } catch (_) {}

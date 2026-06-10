@@ -281,6 +281,13 @@ Future<void> _buildWeb(_LocalDemoConfig config) async {
     if (exitCode != 0) {
       throw StateError('Flutter Web build failed with exit code $exitCode.');
     }
+    // --pwa-strategy=none writes an empty service worker; ship the
+    // self-destructing one from web/ so browsers that cached an earlier
+    // PWA build clear it and load the fresh shell.
+    final cleanupWorker = File('web/flutter_service_worker.js');
+    if (cleanupWorker.existsSync()) {
+      cleanupWorker.copySync('build/web/flutter_service_worker.js');
+    }
   } finally {
     defineDir.deleteSync(recursive: true);
   }

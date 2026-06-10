@@ -1,209 +1,302 @@
-# Wayfare Flutter Front-End Prototype
+# Wayfare Travel Planner
 
-This project is a Flutter + Dart implementation of the travel planning app described in the UI design document.
+![Flutter](https://img.shields.io/badge/Flutter-%E2%89%A53.41_stable-blue)
+![Dart](https://img.shields.io/badge/Dart-%E2%89%A53.11-blue)
+![Material 3](https://img.shields.io/badge/Material-3-purple)
+![Backend](https://img.shields.io/badge/Backend-Dart_%2B_SQLite-green)
+![Map](https://img.shields.io/badge/Map-AMap%2FGaode-orange)
 
-## Scope
+A one-stop travel planning prototype: discover destinations, browse 5A scenic
+spots by tag, plan day-by-day itineraries on an interactive AMap, and keep
+saved trips in sync with a local Dart + SQLite backend.
 
-- Flutter app using Material 3 components.
-- Material You support through the `dynamic_color` package on Android 12+.
-- AMap/Gaode map page with categorized markers, itinerary markers, route polyline, and a point-pick mode for adding map points into the itinerary.
-- Manual theme sources in Profile settings: System Dynamic Color, Ocean Blue, Forest Green, Sunrise Orange, Neutral Gray, and Custom Accent Color.
-- The Flutter front end calls the Dart + SQLite backend for login, scenic search, destinations, map places, itineraries, saved trips, and feedback. It shows a backend connection error instead of silently falling back to fake data.
+> Works on **Windows, Linux, and macOS** for development. App targets are
+> Web, Android, and iOS. All `flutter` / `dart` commands below are identical
+> on every OS — only environment-variable syntax differs, see
+> [Platform Notes](#platform-notes).
 
-## Implemented Screens
+## Contents
 
-- Home: backend scenic-spot search, filter chips, quick actions, recommendation cards, and planning guide cards.
-- Explore Map: visual map preview, categorized markers, retry state, and location bottom sheets.
-- Itinerary: backend-backed day timeline, Material date picker for new days, draggable item reorder, item cards, add/edit bottom sheet, delete confirmation, and save status.
-- Saved: upcoming trips, folders, saved destinations, and past travel history.
-- Profile: travel preferences, settings, Material You theme picker, help center, feedback, and onboarding.
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Platform Notes](#platform-notes)
+- [AMap / Gaode Keys](#amap--gaode-keys)
+- [Web Release Build](#web-release-build)
+- [One-Command Local Demo](#one-command-local-demo)
+- [Backend Configuration](#backend-configuration)
+- [Testing & Quality Gates](#testing--quality-gates)
+- [Android Release Signing](#android-release-signing)
+- [Troubleshooting](#troubleshooting)
+- [Project Structure](#project-structure)
 
-## Login
+## Features
 
-The app starts at a login screen unless a local session exists. Phone/email login calls
-`POST /auth/login`: if the identifier exists, the user is signed in; if not, a small-team user
-record is created in SQLite and the user is signed in. The backend returns an opaque
-Bearer session token backed by a revocable SQLite `sessions` table. User-owned
-itinerary, saved-trip, and feedback routes require that token.
+- **Home** — backend scenic-spot search, built-in **5A scenic spot library**
+  browsable by tag (自然 / 人文 / 购物 / 探险 / 都市 / 街巷), system CityWalk
+  templates that copy into a chosen itinerary day, and a hero card showing the
+  nearest upcoming plan item.
+- **Explore Map** — AMap canvas with categorized markers, per-day route
+  polylines, marker bottom sheets, and a point-pick mode that adds map points
+  straight into the itinerary.
+- **Itinerary** — day timeline backed by the server: add / edit / duplicate /
+  delete, drag-to-reorder, Material date picker for new days, save status.
+- **Saved** — searchable, folder-filtered collection of upcoming and past
+  trips.
+- **Profile** — travel preferences, Material You theme picker (System Dynamic
+  Color, Ocean Blue, Forest Green, Sunrise Orange, Neutral Gray, Custom
+  Accent), help center, feedback, onboarding.
+- **Login** — phone/email sign-in with auto-registration. The backend issues a
+  revocable Bearer session token stored in a SQLite `sessions` table; all
+  user-owned routes require it.
 
-## Backend Scaffold
+The front end always talks to the real backend — it shows an explicit
+connection error instead of silently falling back to fake data.
 
-Run the Dart + SQLite backend prototype:
+## Requirements
 
-```powershell
-$env:Path='C:\Program Files\Flutter\bin;'+$env:Path
+| Tool | Minimum version | Notes |
+| --- | --- | --- |
+| Flutter | **3.41 stable** | Team floor; newer stable versions work. Enforced via the Dart SDK constraint in `pubspec.yaml`. |
+| Dart | **3.11** | Ships with Flutter ≥3.41. |
+| Python | 3.x | Only for serving the web release build locally. |
+| Android Studio / SDK | latest stable | Only for Android builds (`flutter doctor` must be green). |
+
+Check your toolchain:
+
+```bash
+flutter --version
+flutter doctor
+```
+
+## Quick Start
+
+Two terminals: one for the backend, one for the app.
+
+**Terminal 1 — backend** (serves `http://127.0.0.1:8080`):
+
+```bash
 cd backend
+dart pub get
 dart run bin/server.dart
 ```
 
-Default API base: `http://127.0.0.1:8080`
+Verify: open <http://127.0.0.1:8080/health>.
 
-Default health check: `http://127.0.0.1:8080/health`
+**Terminal 2 — app:**
 
-SQLite database path: `backend/data/wayfare.sqlite`
-
-Search endpoint: `GET /search?q=橘子洲`
-
-Recommended local environment:
-
-```powershell
-$env:WAYFARE_AUTH_SECRET='replace-with-a-long-random-local-secret'
-$env:WAYFARE_ALLOWED_ORIGINS='http://127.0.0.1:8092,http://localhost:8092'
-$env:WAYFARE_DB_PATH='data/wayfare.sqlite'
-dart run bin/server.dart
+```bash
+flutter pub get
+flutter run -d chrome        # or: flutter run (pick a device)
 ```
 
-For any shared or deployed environment, set `WAYFARE_AUTH_SECRET` and a narrow
-`WAYFARE_ALLOWED_ORIGINS` value. Without `WAYFARE_AUTH_SECRET`, the backend uses
-a local development signing secret and reports `auth: development` from `/health`.
-The backend also enables per-client fixed-window rate limiting for auth, search,
-and write routes by default; see `backend/README.md` for environment overrides.
-Set `WAYFARE_OPS_TOKEN` to enable protected aggregate metrics at `/ops/metrics`.
-The same ops token protects `/ops/schema`, which reports the SQLite schema
-version and applied migration checksums for deployment verification.
-Set `WAYFARE_BACKUP_DIR` and run `dart run bin/backup.dart` from `backend/` to
-create verified SQLite backups with manifests.
+Without an AMap key the map page shows a setup panel instead of a blank map —
+everything else works. To get a real map, see
+[AMap / Gaode Keys](#amap--gaode-keys).
 
-The current seed data includes 4A+ scenic spots and urban-core attractions for first-tier and 2025 new first-tier-or-above cities. Full national 4A+ coverage can be imported by extending `scenic_spots` with an official CSV/source list.
+## Platform Notes
 
-## AMap / Gaode Key
+`flutter` / `dart` / `git` commands are identical everywhere. The only
+differences are shell syntax:
 
-Android package/application id: `com.idm.travelplanner`
+| Task | macOS / Linux (bash, zsh) | Windows (PowerShell) |
+| --- | --- | --- |
+| Add Flutter to PATH | `export PATH="$HOME/flutter/bin:$PATH"` | `$env:Path='C:\Program Files\Flutter\bin;'+$env:Path` |
+| Set an env var | `export WAYFARE_AUTH_SECRET='...'` | `$env:WAYFARE_AUTH_SECRET='...'` |
+| Serve a folder over HTTP | `python3 -m http.server 8092 --bind 127.0.0.1 --directory build/web` | `python -m http.server 8092 --bind 127.0.0.1 --directory build/web` |
+| Path separator | `/` | `\` (but `/` also works inside Flutter/Dart tooling) |
 
-For Web AMap testing:
+Platform-specific extras:
 
-```powershell
-flutter build web --release --pwa-strategy=none --dart-define=AMAP_JS_KEY=your_web_js_key --dart-define=AMAP_JS_SECURITY_CODE=your_security_code
-```
+- **Windows:** for Windows *desktop* builds with plugins, enable Developer
+  Mode so Flutter can create symlinks: `start ms-settings:developers`.
+- **Linux:** install Chrome/Chromium and set `CHROME_EXECUTABLE` if
+  `flutter run -d chrome` cannot find the browser.
+- **macOS:** iOS builds additionally require Xcode and CocoaPods.
 
-`AMAP_JS_SECURITY_CODE` is optional for local builds only when the AMap Web JS
-key does not require one. If AMap security is enabled for the key, provide the
-matching security code.
+## AMap / Gaode Keys
 
-Run with a real AMap Android key:
+Keys are passed at build time via `--dart-define` — **never commit keys to the
+repo**. Android package/application id: `com.idm.travelplanner`.
 
-```powershell
-$env:Path='C:\Program Files\Flutter\bin;'+$env:Path
+| Define | Used by | Purpose |
+| --- | --- | --- |
+| `AMAP_JS_KEY` | Web | AMap Web JS API key |
+| `AMAP_JS_SECURITY_CODE` | Web | Security code paired with the JS key (required if key security is enabled) |
+| `AMAP_ANDROID_KEY` | Android | AMap Android native key |
+| `AMAP_IOS_KEY` | iOS | AMap iOS native key |
+| `WAYFARE_API_BASE` | all | Point the app at a non-default backend (default `http://127.0.0.1:8080`) |
+
+Examples:
+
+```bash
+# Web build with a real map
+flutter build web --release --pwa-strategy=none \
+  --dart-define=AMAP_JS_KEY=your_web_js_key \
+  --dart-define=AMAP_JS_SECURITY_CODE=your_security_code
+
+# Run on Android with a real map
 flutter run --dart-define=AMAP_ANDROID_KEY=your_amap_android_key
 ```
 
-Without a key, the map page shows a setup panel instead of a blank map.
+(PowerShell: same commands on one line, or use a backtick `` ` `` instead of
+`\` for line continuation.)
 
-## Run
+Alternatively keep keys in a local text file **outside the repo** and let the
+demo tool read it (see below). Expected file format, one entry per line:
 
-Install Flutter, then run:
-
-```powershell
-$env:Path='C:\Program Files\Flutter\bin;'+$env:Path
-flutter pub get
-flutter run
-flutter build web
+```text
+Wayfare_WebSvc	api_key:<backend web-service key>
+Wayfare_WebJS	api_key:<web js key>
+Security_code:<js security code>
 ```
 
-For web release testing, run the backend first, then build and serve `build/web`:
+## Web Release Build
 
-```powershell
-$env:Path='C:\Program Files\Flutter\bin;'+$env:Path
-cd backend
-dart run bin/server.dart
-```
-
-In another terminal:
-
-```powershell
-$env:Path='C:\Program Files\Flutter\bin;'+$env:Path
+```bash
 flutter build web --release --pwa-strategy=none
-python -m http.server 8092 --bind 127.0.0.1 --directory build/web
 ```
 
-For the shortest local demo path after `build/web` exists, run:
+Two important details:
+
+1. **Always pass `--pwa-strategy=none`.** Earlier builds shipped a caching
+   service worker; browsers that saw one keep serving a stale app shell.
+2. `web/flutter_service_worker.js` is a **self-destructing service worker**
+   that evicts those stale caches. The build wipes it from `build/web`, so
+   copy it back after building:
+
+```bash
+cp web/flutter_service_worker.js build/web/flutter_service_worker.js   # macOS/Linux
+```
 
 ```powershell
+Copy-Item web\flutter_service_worker.js build\web\flutter_service_worker.js   # Windows
+```
+
+Then serve it (backend must be running):
+
+```bash
+python3 -m http.server 8092 --bind 127.0.0.1 --directory build/web   # Windows: python
+```
+
+App: <http://127.0.0.1:8092>
+
+## One-Command Local Demo
+
+The demo tool starts (or reuses) the backend on `:8080`, serves the web build
+on `:8092`, runs the smoke check, and keeps both alive until you stop it:
+
+```bash
 dart run tool/local_demo.dart
 ```
 
-This starts or reuses the backend on `127.0.0.1:8080`, starts or reuses the
-Flutter Web shell on `127.0.0.1:8092`, runs the local smoke check, and keeps the
-demo available until you stop the command.
+Rebuild the web bundle from your local key file first (it also restores the
+self-destruct service worker automatically):
 
-To rebuild Web from the external AMap key file before starting the demo:
-
-```powershell
-dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt
+```bash
+dart run tool/local_demo.dart --rebuild-web --amap-key-file=path/to/amap-keys.txt
 ```
 
-The key file is expected to contain `Wayfare_WebSvc api_key:<key>` for the
-backend Web Service key and `Wayfare_WebJS api_key:<key>` for the Web JS key.
-If the file also contains `Security_code:<code>`, the explicit
-`--amap-js-security-code` flag is not needed. Prefer the key file or
-`AMAP_JS_SECURITY_CODE` environment variable over command-line secrets.
+Standalone smoke check (backend health, login, authenticated `/me`, scenic
+search, served web shell):
 
-Then verify the basic local demo path:
-
-```powershell
+```bash
 dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092
 ```
 
-The smoke check covers backend health, login, authenticated `/me`, scenic search,
-and the served Flutter Web shell.
+Full handoff checklist: [`docs/local_demo_runbook.md`](docs/local_demo_runbook.md).
 
-For the complete local demo handoff checklist, see
-`docs/local_demo_runbook.md`.
+## Backend Configuration
 
-To point the web build at another backend:
+All optional for local development — the server runs with safe defaults and
+reports `auth: development` from `/health` until a real secret is set.
 
-```powershell
-flutter build web --release --pwa-strategy=none --dart-define=WAYFARE_API_BASE=https://api.example.com
+| Env var | Purpose |
+| --- | --- |
+| `WAYFARE_AUTH_SECRET` | Session-token signing secret. **Required** for any shared/deployed environment. |
+| `WAYFARE_ALLOWED_ORIGINS` | CORS allowlist, e.g. `http://127.0.0.1:8092,http://localhost:8092`. Keep narrow. |
+| `WAYFARE_DB_PATH` | SQLite path (default `data/wayfare.sqlite`). |
+| `WAYFARE_OPS_TOKEN` | Enables protected aggregate metrics at `/ops/metrics` and schema/migration info at `/ops/schema`. |
+| `WAYFARE_BACKUP_DIR` | Target for verified SQLite backups: `dart run bin/backup.dart` (run from `backend/`). |
+
+Useful endpoints: `/health`, `/search?q=橘子洲`. Per-client rate limiting for
+auth, search, and write routes is on by default — overrides documented in
+[`backend/README.md`](backend/README.md).
+
+The seed data covers 4A+ scenic spots and urban-core attractions for
+first-tier and 2025 new-first-tier cities; the in-app 5A library lives in
+`lib/scenic_spots_5a.dart`.
+
+## Testing & Quality Gates
+
+```bash
+flutter analyze          # static analysis — must be clean
+flutter test             # widget + data tests
 ```
 
-## Release Readiness
+Release readiness gate:
 
-Run the local release gate before handing off a build:
-
-```powershell
-dart run tool/release_readiness.dart --mode local
+```bash
+dart run tool/release_readiness.dart --mode local     # repeatable CI/handoff check
+dart run tool/release_readiness.dart --mode release   # production inputs required
 ```
 
-For a commercial release, provide production values and run:
+`--mode release` demands a strong `WAYFARE_AUTH_SECRET`, HTTPS-only
+`WAYFARE_ALLOWED_ORIGINS`, a production HTTPS `WAYFARE_API_BASE`, real AMap
+keys, and Android release signing.
 
-```powershell
-dart run tool/release_readiness.dart --mode release
-```
+## Android Release Signing
 
-Release mode requires a strong `WAYFARE_AUTH_SECRET`, HTTPS-only
-`WAYFARE_ALLOWED_ORIGINS`, a production HTTPS `WAYFARE_API_BASE`, real
-`AMAP_JS_KEY`, `AMAP_JS_SECURITY_CODE`, and `AMAP_ANDROID_KEY` values, plus
-Android release signing credentials. Android signing can come from environment
+Release builds refuse debug keys. Provide signing either via environment
 variables:
 
-```powershell
-$env:WAYFARE_ANDROID_KEYSTORE='C:\secure\wayfare-release.jks'
-$env:WAYFARE_ANDROID_STORE_PASSWORD='store-password'
-$env:WAYFARE_ANDROID_KEY_ALIAS='wayfare'
-$env:WAYFARE_ANDROID_KEY_PASSWORD='key-password'
-```
+| Env var | Meaning |
+| --- | --- |
+| `WAYFARE_ANDROID_KEYSTORE` | Path to the release `.jks` |
+| `WAYFARE_ANDROID_STORE_PASSWORD` | Keystore password |
+| `WAYFARE_ANDROID_KEY_ALIAS` | Key alias |
+| `WAYFARE_ANDROID_KEY_PASSWORD` | Key password |
 
-or from an ignored `android/key.properties` file:
+…or via a git-ignored `android/key.properties`:
 
 ```properties
-storeFile=C:\\secure\\wayfare-release.jks
+storeFile=/secure/wayfare-release.jks        # Windows: C:\\secure\\wayfare-release.jks
 storePassword=store-password
 keyAlias=wayfare
 keyPassword=key-password
 ```
 
-The Gradle release build no longer signs with debug keys. If release signing is
-missing, Android release tasks fail instead of producing a misleading package.
+Then:
 
-For Android builds, make sure Android Studio / Android SDK is installed and Flutter can see it:
-
-```powershell
-flutter doctor
+```bash
 flutter build apk
 ```
 
-For Windows desktop builds with plugins, enable Developer Mode so Flutter can create symlinks:
+## Troubleshooting
 
-```powershell
-start ms-settings:developers
+| Symptom | Cause / fix |
+| --- | --- |
+| Old UI keeps showing after a rebuild (stale buttons, old badges) | A legacy service worker is serving cache. Make sure the self-destruct `flutter_service_worker.js` is in `build/web`, then hard-refresh once (Ctrl/Cmd+Shift+R). |
+| Compile error `No named parameter ...` | Your Flutter is older than the 3.41 floor — run `flutter upgrade`. Conversely, don't introduce APIs newer than 3.41 stable; CI-less repo relies on this floor. |
+| Map page shows a setup panel | No AMap key in the build — pass `AMAP_JS_KEY` (web) or the native key defines. If the key has security enabled, `AMAP_JS_SECURITY_CODE` is required too. |
+| “Backend is not reachable” snackbar | Start the backend first: `cd backend && dart run bin/server.dart`, then check `/health`. |
+| CORS errors in the browser console | Set `WAYFARE_ALLOWED_ORIGINS` to include the origin serving the web build (e.g. `http://127.0.0.1:8092`). |
+
+## Project Structure
+
+```text
+IDM/
+├── lib/
+│   ├── main.dart                 # app: models, API client, state, screens
+│   ├── scenic_spots_5a.dart      # built-in 5A scenic spot library (tagged)
+│   ├── amap_canvas_web.dart      # Web AMap JS bridge (+ stub for non-web)
+│   └── *_field_web/stub.dart     # platform-conditional input fields
+├── backend/
+│   ├── bin/server.dart           # Dart HTTP server, routes, SQLite store
+│   ├── bin/backup.dart           # verified SQLite backups
+│   └── data/wayfare.sqlite       # local prototype data (git-ignored)
+├── web/                          # web shell + self-destruct service worker
+├── test/                         # widget + scenic-data tests
+├── tool/                         # local_demo, local_smoke, release_readiness
+└── docs/                         # requirements, UI design, runbooks
 ```

@@ -310,6 +310,15 @@ void main() {
     expect(
         invalidReorder.json['error'], 'itemIds must not contain duplicates.');
 
+    final deletedDay = await server.post(
+      '/itineraries/$tripId/days/$dayId',
+      <String, Object?>{},
+      token: token,
+      method: 'DELETE',
+    );
+    expect(deletedDay.statusCode, HttpStatus.ok);
+    expect(deletedDay.json['deleted'], dayId);
+
     final invalidSaved = await server.post(
       '/saved',
       {

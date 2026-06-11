@@ -9,7 +9,7 @@ Important entrypoints:
 
 - Flutter app: `lib/main.dart`
 - Web AMap bridge: `lib/amap_canvas_web.dart`
-- Backend server: `backend/bin/server.dart`
+- Backend server: `backend/bin/server.dart` (auto-loads `Amap.csv` for `Wayfare_WebSvc` key at startup)
 - Backend database: `backend/data/wayfare.sqlite`
 - Frontend package: `pubspec.yaml`
 - Backend package: `backend/pubspec.yaml`
@@ -25,6 +25,25 @@ Scope:
 - Saved trips, Profile, Help, and Feedback.
 - Local Dart backend with SQLite storage.
 
+Current acceptance notes:
+
+- Preserve the existing Monet/dynamic color extraction behavior.
+- Prefer canonical Flutter Material 3 components, tokens, shape, spacing, and
+  state handling when improving UI polish.
+- Saved trips must reflect saved backend data and empty/search/remove states
+  without duplicating or misclassifying items.
+- A user can own multiple itineraries; Saved is the itinerary switcher and
+  should show saved itineraries as selectable plans.
+- Itinerary and Explore Map must operate on the currently selected itinerary.
+- Itinerary days are ordered by date; date is the primary day label and the
+  trailing metadata shows that day's stop count.
+- Itinerary day layout should follow the System CityWalk card pattern: one
+  date-based route card per day with ordered stops inside the card.
+- Itinerary stop moving must remain explicit and discoverable; keep both drag
+  reorder affordance and target-date move flow.
+- Remove redundant manual Save Plan action because itinerary mutations already
+  persist to the backend/Saved flow.
+
 Non-goals:
 
 - No real booking platform.
@@ -39,7 +58,7 @@ The current implementation is intentionally compact:
 - `lib/main.dart` contains domain models, API client, state, screens, and shared widgets.
 - `lib/scenic_spots_5a.dart` holds the built-in national 5A scenic spot catalogue and its tag metadata.
 - `lib/*_web.dart` and `lib/*_stub.dart` provide conditional Web and non-Web behavior.
-- `backend/bin/server.dart` contains routes, SQLite schema, seed data, and store methods.
+- `backend/bin/server.dart` (auto-loads `Amap.csv` for `Wayfare_WebSvc` key at startup) contains routes, SQLite schema, seed data, and store methods.
 - `third_party/` contains local AMap Flutter packages and should be treated as vendor code.
 
 Large refactors should be staged. Prefer narrow fixes unless a task explicitly asks for a module split.

@@ -22,6 +22,8 @@ const _amapAndroidKey = String.fromEnvironment('AMAP_ANDROID_KEY');
 const _amapIosKey = String.fromEnvironment('AMAP_IOS_KEY');
 const _amapJsKey = String.fromEnvironment('AMAP_JS_KEY');
 const _amapJsSecurityCode = String.fromEnvironment('AMAP_JS_SECURITY_CODE');
+const _savedItineraryIdPrefix = 'itinerary:';
+const _savedItineraryFolder = 'Itineraries';
 
 int _localIdCounter = 0;
 
@@ -259,6 +261,8 @@ class SavedTrip {
     required this.lastUpdated,
     required this.folder,
     required this.upcoming,
+    this.type = 'destination',
+    this.refId,
   });
 
   final String id;
@@ -268,6 +272,10 @@ class SavedTrip {
   final String lastUpdated;
   final String folder;
   final bool upcoming;
+  final String type;
+  final String? refId;
+
+  bool get isItinerary => type == 'itinerary';
 }
 
 class CityWalkStop {
@@ -452,7 +460,17 @@ abstract interface class WayfareBackend {
   void setSessionToken(String? token);
   Future<BackendLoginResult> loginOrRegister(String identifier);
   Future<void> logout();
-  Future<TravelDataRepository> loadTravelData(String userId);
+  Future<TravelDataRepository> loadTravelData(
+    String userId, {
+    String? activeItineraryId,
+  });
+  Future<TravelDataRepository> createItinerary(
+    String userId, {
+    required String title,
+    required String destination,
+    required String startDate,
+    required String endDate,
+  });
   Future<List<TravelSearchResult>> searchPlaces(String query);
   Future<ItineraryDay> addDay(
     String itineraryId, {
@@ -482,6 +500,7 @@ abstract interface class WayfareBackend {
     LatLng? point,
   });
   Future<void> deleteItem(String itineraryId, String dayId, String itemId);
+  Future<void> deleteDay(String itineraryId, String dayId);
   Future<List<ItineraryItem>> reorderItems(
     String itineraryId,
     String dayId,
@@ -515,13 +534,10 @@ class WayfareApiClient implements WayfareBackend {
 
   @override
   Future<BackendLoginResult> loginOrRegister(String identifier) async {
-    final body = await _post('/auth/login', {
-      'identifier': identifier,
-    });
+    final body = await _post('/auth/login', {'identifier': identifier});
     final sessionToken = body['token']?.toString() ?? '';
-    final sessionExpiresAt = DateTime.tryParse(
-          body['expiresAt']?.toString() ?? '',
-        ) ??
+    final sessionExpiresAt =
+        DateTime.tryParse(body['expiresAt']?.toString() ?? '') ??
         DateTime.now().toUtc();
     setSessionToken(sessionToken);
     final user = _userFromJson(
@@ -544,9 +560,11 @@ class WayfareApiClient implements WayfareBackend {
   }
 
   @override
-  Future<TravelDataRepository> loadTravelData(String userId) async {
+  Future<TravelDataRepository> loadTravelData(
+    String userId, {
+    String? activeItineraryId,
+  }) async {
     final destinationsBody = await _get('/destinations');
-    final placesBody = await _get('/map/places');
     final savedBody = await _get('/saved');
     var itineraryBody = await _get('/itineraries');
 
@@ -559,29 +577,56 @@ class WayfareApiClient implements WayfareBackend {
         'destination': 'Current Trip',
         'startDate': isoDate,
         'endDate': isoDate,
-        'status': 'draft',
+        'status': 'saved',
         'days': <Map<String, Object?>>[],
       });
       itineraries = [_asMap(created['item'])];
       itineraryBody = {'items': itineraries};
     }
 
-    final activeTrip = _asMap(_listOfMaps(itineraryBody['items']).first);
+    final itineraryItems = _listOfMaps(itineraryBody['items']);
+    final activeTrip = _activeItineraryFrom(
+      itineraryItems,
+      activeItineraryId: activeItineraryId,
+    );
+    final savedTrips = _mergeSavedTrips(
+      _listOfMaps(savedBody['items']).map(_savedTripFromJson).toList(),
+      _savedTripsFromItineraries(itineraryItems),
+    );
+    final activeDays = _daysFromJson(activeTrip);
     return TravelDataRepository(
-      destinations: _listOfMaps(destinationsBody['items'])
-          .map(_destinationFromJson)
-          .toList(),
-      mapPlaces:
-          _listOfMaps(placesBody['items']).map(_mapPlaceFromJson).toList(),
-      savedTrips:
-          _listOfMaps(savedBody['items']).map(_savedTripFromJson).toList(),
-      itineraryDays: _daysFromJson(activeTrip),
+      destinations: _listOfMaps(
+        destinationsBody['items'],
+      ).map(_destinationFromJson).toList(),
+      mapPlaces: _scheduledMapPlacesFromDays(activeDays),
+      savedTrips: savedTrips,
+      itineraryDays: activeDays,
       activeItineraryId: activeTrip['id']?.toString(),
       activeItineraryTitle:
           activeTrip['title']?.toString().trim().isEmpty == false
-              ? activeTrip['title'].toString()
-              : 'My Travel Plan',
+          ? activeTrip['title'].toString()
+          : 'My Travel Plan',
     );
+  }
+
+  @override
+  Future<TravelDataRepository> createItinerary(
+    String userId, {
+    required String title,
+    required String destination,
+    required String startDate,
+    required String endDate,
+  }) async {
+    final body = await _post('/itineraries', {
+      'title': title,
+      'destination': destination,
+      'startDate': startDate,
+      'endDate': endDate,
+      'status': 'saved',
+      'days': <Map<String, Object?>>[],
+    });
+    final created = _asMap(body['item']);
+    return loadTravelData(userId, activeItineraryId: created['id']?.toString());
   }
 
   @override
@@ -641,26 +686,32 @@ class WayfareApiClient implements WayfareBackend {
     required String note,
     LatLng? point,
   }) async {
-    final body = await _patch(
-      '/itineraries/$itineraryId/days/$dayId/items/$itemId',
-      {
-        'targetDayId': targetDayId,
-        'time': time,
-        'placeName': place,
-        'activity': activity,
-        'note': note,
-        'status': 'saved',
-        if (point != null) 'lat': point.latitude,
-        if (point != null) 'lng': point.longitude,
-      },
-    );
+    final body =
+        await _patch('/itineraries/$itineraryId/days/$dayId/items/$itemId', {
+          'targetDayId': targetDayId,
+          'time': time,
+          'placeName': place,
+          'activity': activity,
+          'note': note,
+          'status': 'saved',
+          if (point != null) 'lat': point.latitude,
+          if (point != null) 'lng': point.longitude,
+        });
     return _itemFromJson(_asMap(body['item']));
   }
 
   @override
   Future<void> deleteItem(
-      String itineraryId, String dayId, String itemId) async {
+    String itineraryId,
+    String dayId,
+    String itemId,
+  ) async {
     await _delete('/itineraries/$itineraryId/days/$dayId/items/$itemId');
+  }
+
+  @override
+  Future<void> deleteDay(String itineraryId, String dayId) async {
+    await _delete('/itineraries/$itineraryId/days/$dayId');
   }
 
   @override
@@ -683,7 +734,9 @@ class WayfareApiClient implements WayfareBackend {
 
   @override
   Future<SavedTrip> saveDestination(
-      String userId, Destination destination) async {
+    String userId,
+    Destination destination,
+  ) async {
     final body = await _post('/saved', {
       'type': 'destination',
       'refId': destination.id,
@@ -695,6 +748,14 @@ class WayfareApiClient implements WayfareBackend {
 
   @override
   Future<void> deleteSavedTrip(String savedTripId) async {
+    if (savedTripId.startsWith(_savedItineraryIdPrefix)) {
+      final itineraryId = savedTripId.substring(_savedItineraryIdPrefix.length);
+      if (itineraryId.trim().isEmpty) {
+        return;
+      }
+      await _patch('/itineraries/$itineraryId', {'status': 'draft'});
+      return;
+    }
     await _delete('/saved/$savedTripId');
   }
 
@@ -794,7 +855,8 @@ AppUser _userFromJson(
   DateTime? sessionExpiresAt,
 }) {
   final identifier = json['identifier']?.toString() ?? '';
-  final displayName = json['displayName']?.toString() ??
+  final displayName =
+      json['displayName']?.toString() ??
       json['display_name']?.toString() ??
       LocalAuthRepository._displayNameFromIdentifier(identifier);
   return AppUser(
@@ -825,22 +887,6 @@ Destination _destinationFromJson(Map<String, Object?> json) {
   );
 }
 
-MapPlace _mapPlaceFromJson(Map<String, Object?> json) {
-  final category = json['category']?.toString() ?? 'Place';
-  final lat = _doubleValue(json['lat']) ?? 30.2431;
-  final lng = _doubleValue(json['lng']) ?? 120.1508;
-  return MapPlace(
-    id: json['id']?.toString() ?? _nextLocalId('place'),
-    name: json['name']?.toString() ?? 'Place',
-    category: category,
-    distance: json['distance']?.toString() ?? 'Backend place',
-    description: json['description']?.toString() ?? '',
-    rating: json['rating']?.toString() ?? 'Unrated',
-    point: LatLng(lat, lng),
-    icon: _iconForCategory(category),
-  );
-}
-
 TravelSearchResult _searchResultFromJson(Map<String, Object?> json) {
   final lat = _doubleValue(json['lat']) ?? 30.2431;
   final lng = _doubleValue(json['lng']) ?? 120.1508;
@@ -856,38 +902,293 @@ TravelSearchResult _searchResultFromJson(Map<String, Object?> json) {
   );
 }
 
+Map<String, Object?> _activeItineraryFrom(
+  List<Map<String, Object?>> itineraries, {
+  String? activeItineraryId,
+}) {
+  if (activeItineraryId != null && activeItineraryId.trim().isNotEmpty) {
+    for (final trip in itineraries) {
+      if (trip['id']?.toString() == activeItineraryId) {
+        return _asMap(trip);
+      }
+    }
+  }
+  return _latestItinerary(itineraries);
+}
+
+Map<String, Object?> _latestItinerary(List<Map<String, Object?>> itineraries) {
+  if (itineraries.isEmpty) {
+    return <String, Object?>{};
+  }
+  final sorted = List<Map<String, Object?>>.from(itineraries)
+    ..sort((a, b) {
+      final aCreated =
+          DateTime.tryParse(a['createdAt']?.toString() ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bCreated =
+          DateTime.tryParse(b['createdAt']?.toString() ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bCreated.compareTo(aCreated);
+    });
+  return _asMap(sorted.first);
+}
+
 SavedTrip _savedTripFromJson(Map<String, Object?> json) {
-  final label = json['label']?.toString() ??
+  final type = _normalizedSavedType(json['type']);
+  final refId = json['ref_id']?.toString() ?? json['refId']?.toString();
+  final label =
+      json['label']?.toString() ??
       json['destination']?.toString() ??
       json['ref_id']?.toString() ??
       json['refId']?.toString() ??
       'Saved item';
+  final lastUpdated = json['lastUpdated']?.toString().trim();
   return SavedTrip(
     id: json['id']?.toString() ?? _nextLocalId('saved'),
     destination: label,
-    dateRange: json['dateRange']?.toString() ?? 'Saved destination',
-    itemCount: json['itemCount']?.toString() ?? 'Backend record',
-    lastUpdated: json['created_at']?.toString() ??
-        json['createdAt']?.toString() ??
-        'Stored',
+    dateRange: json['dateRange']?.toString() ?? _savedRangeFallback(type),
+    itemCount: json['itemCount']?.toString() ?? _savedItemFallback(type),
+    lastUpdated: lastUpdated?.isNotEmpty == true
+        ? lastUpdated!
+        : _savedTimestampLabel(json['created_at'] ?? json['createdAt']),
     folder: json['folder']?.toString() ?? 'Trips',
-    upcoming: json['upcoming'] == false ? false : true,
+    upcoming: json['upcoming'] == true,
+    type: type,
+    refId: refId,
   );
 }
 
+List<SavedTrip> _savedTripsFromItineraries(
+  List<Map<String, Object?>> itineraries,
+) {
+  return itineraries
+      .where((trip) => trip['status']?.toString() == 'saved')
+      .map(_savedTripFromItineraryJson)
+      .toList(growable: false);
+}
+
+SavedTrip _savedTripFromItineraryJson(Map<String, Object?> json) {
+  final itineraryId = json['id']?.toString() ?? _nextLocalId('itinerary');
+  final days = _listOfMaps(json['days']);
+  final title =
+      _nonEmptyText(json['title']) ??
+      _nonEmptyText(json['destination']) ??
+      'Saved itinerary';
+  final stopCount = _itineraryStopCount(days);
+  return SavedTrip(
+    id: _savedItineraryEntryId(itineraryId),
+    destination: title,
+    dateRange:
+        _dateRangeLabel(
+          _nonEmptyText(json['startDate']),
+          _nonEmptyText(json['endDate']),
+        ) ??
+        _dateRangeFromDayMaps(days) ??
+        'Saved itinerary',
+    itemCount: _stopCountLabel(stopCount),
+    lastUpdated: _savedTimestampLabel(json['updatedAt'] ?? json['createdAt']),
+    folder: _savedItineraryFolder,
+    upcoming: _hasUpcomingDayMap(days),
+    type: 'itinerary',
+    refId: itineraryId,
+  );
+}
+
+List<SavedTrip> _mergeSavedTrips(
+  List<SavedTrip> savedItems,
+  List<SavedTrip> savedItineraries,
+) {
+  final merged = <String, SavedTrip>{};
+  for (final item in savedItems) {
+    merged[_savedTripDedupeKey(item)] = item;
+  }
+  for (final itinerary in savedItineraries) {
+    merged.putIfAbsent(_savedTripDedupeKey(itinerary), () => itinerary);
+  }
+  return merged.values.toList(growable: false);
+}
+
+String _savedTripDedupeKey(SavedTrip trip) {
+  final refId = trip.refId?.trim();
+  if (trip.isItinerary && refId != null && refId.isNotEmpty) {
+    return _savedItineraryEntryId(refId);
+  }
+  return trip.id;
+}
+
+String _savedItineraryEntryId(String itineraryId) {
+  return '$_savedItineraryIdPrefix$itineraryId';
+}
+
+String _normalizedSavedType(Object? value) {
+  final type = value?.toString().trim();
+  switch (type) {
+    case 'itinerary':
+    case 'place':
+    case 'destination':
+      return type!;
+    default:
+      return 'destination';
+  }
+}
+
+String _savedRangeFallback(String type) {
+  return switch (type) {
+    'itinerary' => 'Saved itinerary',
+    'place' => 'Saved place',
+    _ => 'Saved destination',
+  };
+}
+
+String _savedItemFallback(String type) {
+  return switch (type) {
+    'itinerary' => 'Backend itinerary',
+    'place' => 'Backend place',
+    _ => 'Backend record',
+  };
+}
+
+String _savedTimestampLabel(Object? value) {
+  final raw = value?.toString().trim();
+  if (raw == null || raw.isEmpty) {
+    return 'Stored';
+  }
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) {
+    return raw;
+  }
+  return 'Saved ${_isoDate(parsed.toLocal())}';
+}
+
+String? _nonEmptyText(Object? value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty || text == 'TBD' ? null : text;
+}
+
+String? _dateRangeLabel(String? startDate, String? endDate) {
+  if (startDate == null && endDate == null) {
+    return null;
+  }
+  if (startDate == null) {
+    return endDate;
+  }
+  if (endDate == null || endDate == startDate) {
+    return startDate;
+  }
+  return '$startDate - $endDate';
+}
+
+String? _dateRangeFromDayMaps(List<Map<String, Object?>> days) {
+  final dates =
+      days.map((day) => _nonEmptyText(day['date'])).whereType<String>().toList()
+        ..sort();
+  if (dates.isEmpty) {
+    return null;
+  }
+  return _dateRangeLabel(dates.first, dates.last);
+}
+
+int _itineraryStopCount(List<Map<String, Object?>> days) {
+  return days.fold<int>(
+    0,
+    (sum, day) => sum + _listOfMaps(day['items']).length,
+  );
+}
+
+String _stopCountLabel(int count) {
+  return count == 1 ? '1 stop' : '$count stops';
+}
+
+bool _hasUpcomingDayMap(List<Map<String, Object?>> days) {
+  return days.any((day) => _isTodayOrFuture(_nonEmptyText(day['date'])));
+}
+
+bool _isTodayOrFuture(String? rawDate) {
+  if (rawDate == null) {
+    return false;
+  }
+  final parsed = DateTime.tryParse(rawDate);
+  if (parsed == null) {
+    return false;
+  }
+  final today = DateTime.now();
+  final todayDate = DateTime(today.year, today.month, today.day);
+  final candidate = DateTime(parsed.year, parsed.month, parsed.day);
+  return !candidate.isBefore(todayDate);
+}
+
 List<ItineraryDay> _daysFromJson(Map<String, Object?> trip) {
-  return _listOfMaps(trip['days']).map(_dayFromJson).toList();
+  return _sortedItineraryDays(
+    _listOfMaps(trip['days']).map(_dayFromJson).toList(),
+  );
 }
 
 ItineraryDay _dayFromJson(Map<String, Object?> json) {
+  final date = json['date']?.toString() ?? _isoDate(DateTime.now());
   return ItineraryDay(
     id: json['id']?.toString(),
-    title: json['title']?.toString() ?? 'Day',
-    date: json['date']?.toString() ?? _isoDate(DateTime.now()),
+    title: date,
+    date: date,
     city: json['city']?.toString() ?? 'Current city',
     reminder: json['reminder']?.toString() ?? '',
     items: _listOfMaps(json['items']).map(_itemFromJson).toList(),
   );
+}
+
+List<ItineraryDay> _sortedItineraryDays(List<ItineraryDay> days) {
+  return days..sort((a, b) {
+    final aDate = _parseIsoDate(a.date);
+    final bDate = _parseIsoDate(b.date);
+    if (aDate == null && bDate == null) {
+      return a.date.compareTo(b.date);
+    }
+    if (aDate == null) {
+      return 1;
+    }
+    if (bDate == null) {
+      return -1;
+    }
+    return aDate.compareTo(bDate);
+  });
+}
+
+void _sortRepositoryDays(TravelDataRepository repository) {
+  _sortedItineraryDays(repository.itineraryDays);
+  repository.mapPlaces
+    ..clear()
+    ..addAll(_scheduledMapPlacesFromDays(repository.itineraryDays));
+}
+
+List<MapPlace> _scheduledMapPlacesFromDays(List<ItineraryDay> days) {
+  final items = <MapPlace>[];
+  for (var dayIndex = 0; dayIndex < days.length; dayIndex++) {
+    final day = days[dayIndex];
+    for (final item in day.items) {
+      final point = item.point;
+      if (point == null) {
+        continue;
+      }
+      items.add(
+        MapPlace(
+          id: 'scheduled-${item.id}',
+          name: item.place,
+          category: day.date,
+          distance: day.city,
+          description: '${item.time} | ${item.activity}',
+          rating: item.status,
+          point: point,
+          icon: Icons.event_available_outlined,
+        ),
+      );
+    }
+  }
+  return items;
+}
+
+String _dayPickerLabel(ItineraryDay day) {
+  final count = _stopCountLabel(day.items.length);
+  final city = day.city.trim();
+  return city.isEmpty ? '${day.date} | $count' : '${day.date} | $city | $count';
 }
 
 ItineraryItem _itemFromJson(Map<String, Object?> json) {
@@ -964,26 +1265,9 @@ Color _toneForTheme(String theme) {
   return const Color(0xFF5E6C5B);
 }
 
-IconData _iconForCategory(String category) {
-  switch (category) {
-    case 'Food':
-      return Icons.restaurant_outlined;
-    case 'Nature':
-      return Icons.park_outlined;
-    case 'Transport':
-      return Icons.directions_transit_outlined;
-    case 'Saved Place':
-      return Icons.bookmark_border;
-    default:
-      return Icons.place_outlined;
-  }
-}
-
 class WayfareApp extends StatefulWidget {
-  WayfareApp({
-    WayfareBackend? backend,
-    super.key,
-  }) : backend = backend ?? WayfareApiClient();
+  WayfareApp({WayfareBackend? backend, super.key})
+    : backend = backend ?? WayfareApiClient();
 
   final WayfareBackend backend;
 
@@ -1074,27 +1358,32 @@ class _WayfareAppState extends State<WayfareApp> {
           home: _authLoading
               ? const _AuthLoadingScreen()
               : _user == null
-                  ? _LoginScreen(onLogin: _login)
-                  : TravelPlannerShell(
-                      backend: widget.backend,
-                      user: _user!,
-                      themeSource: _themeSource,
-                      onThemeChanged: (source) =>
-                          setState(() => _themeSource = source),
-                      onLogout: _logout,
-                    ),
+              ? _LoginScreen(onLogin: _login)
+              : TravelPlannerShell(
+                  backend: widget.backend,
+                  user: _user!,
+                  themeSource: _themeSource,
+                  onThemeChanged: (source) =>
+                      setState(() => _themeSource = source),
+                  onLogout: _logout,
+                ),
         );
       },
     );
   }
 
   ThemeData _themeData(ColorScheme colorScheme) {
+    final cardShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    );
+    const buttonShape = StadiumBorder();
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
       splashFactory: InkRipple.splashFactory,
       visualDensity: VisualDensity.standard,
       scaffoldBackgroundColor: colorScheme.surface,
+      canvasColor: colorScheme.surface,
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
@@ -1104,49 +1393,143 @@ class _WayfareAppState extends State<WayfareApp> {
         },
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: colorScheme.surface,
+        backgroundColor: colorScheme.surfaceContainerLowest,
         foregroundColor: colorScheme.onSurface,
+        surfaceTintColor: colorScheme.surfaceTint,
         elevation: 0,
-        scrolledUnderElevation: 1,
+        scrolledUnderElevation: 3,
       ),
       cardTheme: CardThemeData(
+        color: colorScheme.surfaceContainerLow,
+        surfaceTintColor: colorScheme.surfaceTint,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: cardShape,
         margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
       ),
-      navigationBarTheme: const NavigationBarThemeData(
+      navigationBarTheme: NavigationBarThemeData(
+        height: 72,
+        backgroundColor: colorScheme.surfaceContainer,
+        indicatorColor: colorScheme.secondaryContainer,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        labelTextStyle: WidgetStatePropertyAll(
+          TextStyle(color: colorScheme.onSurface, fontWeight: FontWeight.w700),
+        ),
+      ),
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: colorScheme.surfaceContainer,
+        indicatorColor: colorScheme.secondaryContainer,
+        indicatorShape: const StadiumBorder(),
+        selectedIconTheme: IconThemeData(
+          color: colorScheme.onSecondaryContainer,
+        ),
+        selectedLabelTextStyle: TextStyle(
+          color: colorScheme.onSurface,
+          fontWeight: FontWeight.w700,
+        ),
+        unselectedIconTheme: IconThemeData(color: colorScheme.onSurfaceVariant),
+        unselectedLabelTextStyle: TextStyle(
+          color: colorScheme.onSurfaceVariant,
+        ),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: colorScheme.primaryContainer,
+        foregroundColor: colorScheme.onPrimaryContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(44, 44),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          minimumSize: const Size(64, 40),
+          tapTargetSize: MaterialTapTargetSize.padded,
+          shape: buttonShape,
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(44, 44),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          minimumSize: const Size(64, 40),
+          tapTargetSize: MaterialTapTargetSize.padded,
+          side: BorderSide(color: colorScheme.outline),
+          shape: buttonShape,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(64, 40),
+          tapTargetSize: MaterialTapTargetSize.padded,
+          shape: buttonShape,
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(48),
+          tapTargetSize: MaterialTapTargetSize.padded,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         filled: true,
+        fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.38),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colorScheme.primary, width: 2),
+        ),
       ),
       chipTheme: ChipThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: colorScheme.surfaceContainerLow,
+        selectedColor: colorScheme.secondaryContainer,
+        checkmarkColor: colorScheme.onSecondaryContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         side: BorderSide(color: colorScheme.outlineVariant),
       ),
       searchBarTheme: SearchBarThemeData(
+        backgroundColor: WidgetStatePropertyAll(
+          colorScheme.surfaceContainerHigh,
+        ),
         elevation: const WidgetStatePropertyAll(0),
         padding: const WidgetStatePropertyAll(
           EdgeInsets.symmetric(horizontal: 16),
         ),
         shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         ),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: colorScheme.surfaceContainerLow,
+        surfaceTintColor: colorScheme.surfaceTint,
+        modalBackgroundColor: colorScheme.surfaceContainerLow,
+        modalBarrierColor: colorScheme.scrim.withValues(alpha: 0.36),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: colorScheme.surfaceContainerHigh,
+        surfaceTintColor: colorScheme.surfaceTint,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      ),
+      dividerTheme: DividerThemeData(
+        color: colorScheme.outlineVariant,
+        thickness: 1,
+        space: 1,
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: colorScheme.onSurfaceVariant,
+        minVerticalPadding: 12,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: colorScheme.inverseSurface,
+        contentTextStyle: TextStyle(color: colorScheme.onInverseSurface),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -1214,16 +1597,16 @@ class _LoginScreenState extends State<_LoginScreen> {
                   'Wayfare',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'Sign in to continue planning trips',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 28),
                 SegmentedButton<String>(
@@ -1278,8 +1661,9 @@ class _LoginScreenState extends State<_LoginScreen> {
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed:
-                      _submitting ? null : () => _showPrivacyDialog(context),
+                  onPressed: _submitting
+                      ? null
+                      : () => _showPrivacyDialog(context),
                   icon: const Icon(Icons.privacy_tip_outlined),
                   label: const Text('Privacy Notice'),
                 ),
@@ -1316,16 +1700,16 @@ class _LoginScreenState extends State<_LoginScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } on BackendException catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) {
         return;
@@ -1423,16 +1807,20 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     }
   }
 
-  Future<void> _loadBackendData() async {
+  Future<void> _loadBackendData({String? activeItineraryId}) async {
     setState(() {
       _loadingData = true;
       _backendError = null;
     });
     try {
-      final repository = await widget.backend.loadTravelData(widget.user.id);
+      final repository = await widget.backend.loadTravelData(
+        widget.user.id,
+        activeItineraryId: activeItineraryId,
+      );
       if (!mounted) {
         return;
       }
+      _sortRepositoryDays(repository);
       setState(() {
         _repository = repository;
         _loadingData = false;
@@ -1475,10 +1863,12 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                   message: widget.user.identifier,
                   child: CircleAvatar(
                     radius: 17,
-                    backgroundColor:
-                        Theme.of(context).colorScheme.primaryContainer,
-                    foregroundColor:
-                        Theme.of(context).colorScheme.onPrimaryContainer,
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.primaryContainer,
+                    foregroundColor: Theme.of(
+                      context,
+                    ).colorScheme.onPrimaryContainer,
                     child: Text(
                       widget.user.initials,
                       style: const TextStyle(fontWeight: FontWeight.w800),
@@ -1547,22 +1937,18 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
               ListTile(
                 leading: const Icon(Icons.add_circle_outline),
                 title: const Text('Create New Itinerary'),
-                subtitle: const Text('Open the timeline and add a day'),
+                subtitle: const Text('Start a saved plan and make it active'),
                 onTap: () {
                   Navigator.pop(context);
-                  setState(() => _tab = AppTab.itinerary);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) {
-                      _showAddDaySheet();
-                    }
-                  });
+                  _showCreateItinerarySheet();
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.map_outlined),
                 title: const Text('Explore Map'),
                 subtitle: const Text(
-                    'Search, pick points, and inspect route context'),
+                  'Search, pick points, and inspect route context',
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   setState(() => _tab = AppTab.explore);
@@ -1647,7 +2033,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     if (backendError != null) {
       return _BackendErrorPanel(
         message: backendError,
-        onRetry: _loadBackendData,
+        onRetry: () => _loadBackendData(),
       );
     }
     return IndexedStack(
@@ -1679,20 +2065,25 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
             result.intro,
             point: result.point,
           ),
-          onRetry: _loadBackendData,
+          onRetry: () => _loadBackendData(),
         ),
         _ItineraryScreen(
+          title: _repository.activeItineraryTitle,
           days: _repository.itineraryDays,
+          onCreateItinerary: _showCreateItinerarySheet,
           onAddDay: _showAddDaySheet,
+          onDeleteDay: _confirmDeleteDay,
           onEdit: (item) => _showEditItemSheet(item: item),
+          onMove: _showMoveItemSheet,
           onDelete: _confirmDelete,
           onReorder: _reorderItem,
           onDuplicate: _duplicateItem,
           onOpenMap: () => setState(() => _tab = AppTab.explore),
-          onSave: _saveActivePlan,
         ),
         _SavedScreen(
           trips: _repository.savedTrips,
+          activeItineraryId: _repository.activeItineraryId,
+          onSelect: _selectSavedTrip,
           onAdd: (trip) => _showAddPlaceToDaySheet(
             trip.destination,
             'Reused saved trip idea',
@@ -1732,6 +2123,165 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     );
   }
 
+  void _showCreateItinerarySheet() {
+    final today = _dateOnly(DateTime.now());
+    var startDate = today;
+    var endDate = today;
+    final title = TextEditingController(text: 'Trip ${_isoDate(today)}');
+    final destination = TextEditingController(text: 'Current Trip');
+    final formKey = GlobalKey<FormState>();
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> pickDate({required bool start}) async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: start ? startDate : endDate,
+                firstDate: DateTime(2024),
+                lastDate: DateTime(2035),
+              );
+              if (picked == null) {
+                return;
+              }
+              setSheetState(() {
+                if (start) {
+                  startDate = picked;
+                  if (endDate.isBefore(startDate)) {
+                    endDate = startDate;
+                  }
+                } else {
+                  endDate = picked.isBefore(startDate) ? startDate : picked;
+                }
+              });
+            }
+
+            return _SheetPadding(
+              bottomInset: MediaQuery.viewInsetsOf(context).bottom,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Create Itinerary',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'It will be saved and become your active plan.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: title,
+                      decoration: const InputDecoration(
+                        labelText: 'Itinerary name',
+                        prefixIcon: Icon(Icons.route_outlined),
+                      ),
+                      validator: _required,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: destination,
+                      decoration: const InputDecoration(
+                        labelText: 'Destination',
+                        prefixIcon: Icon(Icons.place_outlined),
+                      ),
+                      validator: _required,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _DatePickerTile(
+                            label: 'Start',
+                            value: _isoDate(startDate),
+                            onTap: () => pickDate(start: true),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _DatePickerTile(
+                            label: 'End',
+                            value: _isoDate(endDate),
+                            onTap: () => pickDate(start: false),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      onPressed: _syncing
+                          ? null
+                          : () async {
+                              if (!formKey.currentState!.validate()) {
+                                return;
+                              }
+                              final repository = await _runBackendMutation(
+                                () => widget.backend.createItinerary(
+                                  widget.user.id,
+                                  title: title.text.trim(),
+                                  destination: destination.text.trim(),
+                                  startDate: _isoDate(startDate),
+                                  endDate: _isoDate(endDate),
+                                ),
+                              );
+                              if (repository == null || !mounted) {
+                                return;
+                              }
+                              _sortRepositoryDays(repository);
+                              setState(() {
+                                _repository = repository;
+                                _tab = AppTab.itinerary;
+                              });
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                              }
+                              _toast('Itinerary saved and selected');
+                            },
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('Create Itinerary'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _selectSavedTrip(SavedTrip trip) async {
+    if (!trip.isItinerary) {
+      _showInfo(
+        trip.destination,
+        '${_savedTripTypeLabel(trip)}\n${trip.dateRange}\n'
+        '${trip.itemCount}\n${trip.lastUpdated}',
+      );
+      return;
+    }
+    final itineraryId = trip.refId?.trim();
+    if (itineraryId == null || itineraryId.isEmpty) {
+      _toast('Saved itinerary is missing its backend id.');
+      return;
+    }
+    await _loadBackendData(activeItineraryId: itineraryId);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _tab = AppTab.itinerary);
+    _toast('Switched itinerary');
+  }
+
   Future<void> _showAddPlaceToDaySheet(
     String place,
     String activity,
@@ -1761,7 +2311,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     final day = await _runBackendMutation(
       () => widget.backend.addDay(
         itineraryId,
-        title: 'Day 1',
+        title: _isoDate(DateTime.now()),
         date: _isoDate(DateTime.now()),
         city: 'Current city',
         reminder: 'Review route before departure',
@@ -1770,7 +2320,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     if (day == null || !mounted) {
       return false;
     }
-    setState(() => _repository.itineraryDays.add(day));
+    setState(() {
+      _repository.itineraryDays.add(day);
+      _sortRepositoryDays(_repository);
+    });
     return true;
   }
 
@@ -1800,8 +2353,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('Add to Itinerary',
-                      style: Theme.of(context).textTheme.headlineSmall),
+                  Text(
+                    'Add to Itinerary',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
                   const SizedBox(height: 8),
                   Text(place, style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 16),
@@ -1816,7 +2371,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                         DropdownMenuItem<int>(
                           value: i,
                           child: Text(
-                            '${_repository.itineraryDays[i].title} | ${_repository.itineraryDays[i].date}',
+                            _dayPickerLabel(_repository.itineraryDays[i]),
                           ),
                         ),
                     ],
@@ -1833,8 +2388,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                       onPressed: _syncing
                           ? null
                           : () async {
-                              final index =
-                                  await _pickAndAddDayFromDropdown(context);
+                              final index = await _pickAndAddDayFromDropdown(
+                                context,
+                              );
                               if (index != null && context.mounted) {
                                 setSheetState(() => selectedDayIndex = index);
                               }
@@ -1868,7 +2424,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                             }
                             Navigator.pop(context);
                             _toast(
-                              'Added to ${_repository.itineraryDays[selectedDayIndex].title}',
+                              'Added to ${_repository.itineraryDays[selectedDayIndex].date}',
                             );
                           },
                     icon: const Icon(Icons.add),
@@ -1889,11 +2445,11 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     required String city,
     required String reminder,
   }) async {
-    final existingIndex =
-        _repository.itineraryDays.indexWhere((day) => day.date == date);
+    final existingIndex = _repository.itineraryDays.indexWhere(
+      (day) => day.date == date,
+    );
     if (existingIndex >= 0) {
-      _toast(
-          'Using existing ${_repository.itineraryDays[existingIndex].title}');
+      _toast('Using existing ${_repository.itineraryDays[existingIndex].date}');
       return true;
     }
     final itineraryId = _repository.activeItineraryId;
@@ -1913,7 +2469,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     if (day == null || !mounted) {
       return false;
     }
-    setState(() => _repository.itineraryDays.add(day));
+    setState(() {
+      _repository.itineraryDays.add(day);
+      _sortRepositoryDays(_repository);
+    });
     _toast('New day created');
     return true;
   }
@@ -1932,23 +2491,24 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     if (picked == null) {
       return null;
     }
-    final existingIndex = _repository.itineraryDays
-        .indexWhere((day) => day.date == _isoDate(picked));
+    final existingIndex = _repository.itineraryDays.indexWhere(
+      (day) => day.date == _isoDate(picked),
+    );
     if (existingIndex >= 0) {
-      _toast(
-          'Using existing ${_repository.itineraryDays[existingIndex].title}');
+      _toast('Using existing ${_repository.itineraryDays[existingIndex].date}');
       return existingIndex;
     }
+    final isoDate = _isoDate(picked);
     final created = await _addDay(
-      title: 'Day ${_repository.itineraryDays.length + 1}',
-      date: _isoDate(picked),
+      title: isoDate,
+      date: isoDate,
       city: city,
       reminder: reminder,
     );
     if (!created || !mounted) {
       return null;
     }
-    return _repository.itineraryDays.length - 1;
+    return _repository.itineraryDays.indexWhere((day) => day.date == isoDate);
   }
 
   int _nextAvailableDayIndex() {
@@ -1994,7 +2554,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         ),
       );
       if (created != null && mounted) {
-        setState(() => _repository.itineraryDays[dayIndex].items.add(created));
+        setState(() {
+          _repository.itineraryDays[dayIndex].items.add(created);
+          _sortRepositoryDays(_repository);
+        });
         copied += 1;
       }
     }
@@ -2004,8 +2567,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   }
 
   Future<int?> _showCityWalkTargetDaySheet(CityWalkTemplate template) async {
-    int? selectedDayIndex =
-        _repository.itineraryDays.isEmpty ? null : _nextAvailableDayIndex();
+    int? selectedDayIndex = _repository.itineraryDays.isEmpty
+        ? null
+        : _nextAvailableDayIndex();
     return showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
@@ -2050,7 +2614,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                         for (var i = 0; i < days.length; i++)
                           DropdownMenuItem<int>(
                             value: i,
-                            child: Text('${days[i].title} | ${days[i].date}'),
+                            child: Text(_dayPickerLabel(days[i])),
                           ),
                       ],
                       onChanged: (value) =>
@@ -2075,7 +2639,8 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                             },
                       icon: const Icon(Icons.calendar_month_outlined),
                       label: Text(
-                          days.isEmpty ? 'Choose target date' : 'Add new day'),
+                        days.isEmpty ? 'Choose target date' : 'Add new day',
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -2096,7 +2661,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   }
 
   Future<void> _reorderItem(
-      ItineraryDay day, int oldIndex, int newIndex) async {
+    ItineraryDay day,
+    int oldIndex,
+    int newIndex,
+  ) async {
     final itineraryId = _repository.activeItineraryId;
     if (itineraryId == null) {
       _toast('Create or load a backend itinerary first.');
@@ -2106,6 +2674,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     setState(() {
       final item = day.items.removeAt(oldIndex);
       day.items.insert(newIndex, item);
+      _sortRepositoryDays(_repository);
     });
     final reordered = await _runBackendMutation(
       () => widget.backend.reorderItems(
@@ -2122,6 +2691,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         day.items
           ..clear()
           ..addAll(before);
+        _sortRepositoryDays(_repository);
       });
       return;
     }
@@ -2129,7 +2699,178 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       day.items
         ..clear()
         ..addAll(reordered);
+      _sortRepositoryDays(_repository);
     });
+  }
+
+  Future<void> _showMoveItemSheet(ItineraryItem item) async {
+    final sourceDayIndex = _repository.itineraryDays.indexWhere(
+      (day) => day.items.contains(item),
+    );
+    if (sourceDayIndex < 0) {
+      _toast('This itinerary item is no longer available.');
+      return;
+    }
+    final sourceDay = _repository.itineraryDays[sourceDayIndex];
+    final sourceDayId = sourceDay.id;
+    var selectedDayIndex = sourceDayIndex;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final days = _repository.itineraryDays;
+            final hasSelection =
+                selectedDayIndex >= 0 && selectedDayIndex < days.length;
+            final selectedDay = hasSelection ? days[selectedDayIndex] : null;
+            final targetChanged =
+                selectedDay != null && selectedDay.id != sourceDayId;
+            return _SheetPadding(
+              bottomInset: MediaQuery.viewInsetsOf(context).bottom,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Move Itinerary Item',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(item.place, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<int>(
+                    key: ValueKey(
+                      'move-item-day-$selectedDayIndex-${days.length}',
+                    ),
+                    initialValue: hasSelection ? selectedDayIndex : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Target date',
+                      helperText: 'Move this stop to another date.',
+                    ),
+                    items: [
+                      for (var i = 0; i < days.length; i++)
+                        DropdownMenuItem<int>(
+                          value: i,
+                          child: Text(_dayPickerLabel(days[i])),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setSheetState(() => selectedDayIndex = value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _syncing
+                          ? null
+                          : () async {
+                              final index = await _pickAndAddDayFromDropdown(
+                                context,
+                                city: sourceDay.city,
+                                reminder: sourceDay.reminder,
+                              );
+                              if (index != null && context.mounted) {
+                                setSheetState(() => selectedDayIndex = index);
+                              }
+                            },
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      label: const Text('Add new date'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
+                        label: const Text('Cancel'),
+                      ),
+                      const Spacer(),
+                      FilledButton.icon(
+                        onPressed: _syncing || !targetChanged
+                            ? null
+                            : () async {
+                                final moved = await _moveItemToDay(
+                                  item,
+                                  sourceDayId,
+                                  selectedDayIndex,
+                                );
+                                if (moved && context.mounted) {
+                                  Navigator.pop(context);
+                                }
+                              },
+                        icon: const Icon(Icons.drive_file_move_outlined),
+                        label: const Text('Move'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<bool> _moveItemToDay(
+    ItineraryItem item,
+    String sourceDayId,
+    int targetDayIndex,
+  ) async {
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return false;
+    }
+    final resolvedDayIndex = _resolveDayIndex(targetDayIndex);
+    if (resolvedDayIndex == null) {
+      return false;
+    }
+    final sourceDayIndex = _repository.itineraryDays.indexWhere(
+      (day) => day.id == sourceDayId,
+    );
+    final sourceDay = sourceDayIndex < 0
+        ? null
+        : _repository.itineraryDays[sourceDayIndex];
+    final targetDay = _repository.itineraryDays[resolvedDayIndex];
+    if (sourceDay == null || !sourceDay.items.contains(item)) {
+      _toast('This itinerary item is no longer available.');
+      return false;
+    }
+    if (sourceDay.id == targetDay.id) {
+      _toast('Choose a different date to move this item.');
+      return false;
+    }
+    final moved = await _runBackendMutation(
+      () => widget.backend.updateItem(
+        itineraryId,
+        sourceDay.id,
+        item.id,
+        targetDayId: targetDay.id,
+        time: item.time,
+        place: item.place,
+        activity: item.activity,
+        note: item.note,
+        point: item.point,
+      ),
+    );
+    if (moved == null || !mounted) {
+      return false;
+    }
+    setState(() {
+      sourceDay.items.remove(item);
+      targetDay.items.add(moved);
+      _sortRepositoryDays(_repository);
+    });
+    _toast('Moved to ${targetDay.date}');
+    return true;
   }
 
   Future<void> _duplicateItem(ItineraryDay day, ItineraryItem item) async {
@@ -2152,16 +2893,17 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     if (created == null || !mounted) {
       return;
     }
-    setState(() => day.items.add(created));
+    setState(() {
+      day.items.add(created);
+      _sortRepositoryDays(_repository);
+    });
     _toast('Item duplicated');
   }
 
   void _showAddDaySheet() {
-    final title = TextEditingController(
-      text: 'Day ${_repository.itineraryDays.length + 1}',
+    var selectedDate = DateTime.now().add(
+      Duration(days: _repository.itineraryDays.length),
     );
-    var selectedDate =
-        DateTime.now().add(Duration(days: _repository.itineraryDays.length));
     final city = TextEditingController();
     final reminder = TextEditingController(
       text: 'Review route before departure',
@@ -2184,21 +2926,13 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Create New Day',
+                      'Add Date',
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 16),
-                    TextFormField(
-                      controller: title,
-                      decoration: const InputDecoration(
-                        labelText: 'Day title',
-                        filled: true,
-                      ),
-                      validator: _required,
-                    ),
-                    const SizedBox(height: 12),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(14),
+                    _DatePickerTile(
+                      label: 'Date',
+                      value: _isoDate(selectedDate),
                       onTap: () async {
                         final picked = await showDatePicker(
                           context: context,
@@ -2210,14 +2944,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                           setSheetState(() => selectedDate = picked);
                         }
                       },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Date',
-                          filled: true,
-                          prefixIcon: Icon(Icons.calendar_today_outlined),
-                        ),
-                        child: Text(_isoDate(selectedDate)),
-                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -2244,9 +2970,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                               if (!formKey.currentState!.validate()) {
                                 return;
                               }
+                              final isoDate = _isoDate(selectedDate);
                               final created = await _addDay(
-                                title: title.text.trim(),
-                                date: _isoDate(selectedDate),
+                                title: isoDate,
+                                date: isoDate,
                                 city: city.text.trim().isEmpty
                                     ? 'Current city'
                                     : city.text.trim(),
@@ -2259,7 +2986,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                               }
                             },
                       icon: const Icon(Icons.calendar_month_outlined),
-                      label: const Text('Add Day'),
+                      label: const Text('Add Date'),
                     ),
                   ],
                 ),
@@ -2281,13 +3008,17 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(place.name,
-                  style: Theme.of(context).textTheme.headlineSmall),
+              Text(
+                place.name,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
               const SizedBox(height: 6),
               Text(
-                [place.category, place.distance, place.rating]
-                    .where((part) => part.trim().isNotEmpty)
-                    .join(' | '),
+                [
+                  place.category,
+                  place.distance,
+                  place.rating,
+                ].where((part) => part.trim().isNotEmpty).join(' | '),
               ),
               const SizedBox(height: 12),
               Text(place.description),
@@ -2331,8 +3062,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       return false;
     }
     final point = pick.point;
-    final inferredName =
-        pick.name.trim().isEmpty ? 'Selected map point' : pick.name.trim();
+    final inferredName = pick.name.trim().isEmpty
+        ? 'Selected map point'
+        : pick.name.trim();
     final address = pick.address?.trim();
     var selectedDayIndex = _nextAvailableDayIndex();
     final place = TextEditingController(text: inferredName);
@@ -2376,12 +3108,15 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                         'map-point-day-$selectedDayIndex-${_repository.itineraryDays.length}',
                       ),
                       initialValue: selectedDayIndex,
-                      decoration:
-                          const InputDecoration(labelText: 'Target day'),
+                      decoration: const InputDecoration(
+                        labelText: 'Target day',
+                      ),
                       items: [
-                        for (var i = 0;
-                            i < _repository.itineraryDays.length;
-                            i++)
+                        for (
+                          var i = 0;
+                          i < _repository.itineraryDays.length;
+                          i++
+                        )
                           DropdownMenuItem<int>(
                             value: i,
                             child: Text(
@@ -2402,8 +3137,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                         onPressed: _syncing
                             ? null
                             : () async {
-                                final index =
-                                    await _pickAndAddDayFromDropdown(context);
+                                final index = await _pickAndAddDayFromDropdown(
+                                  context,
+                                );
                                 if (index != null && context.mounted) {
                                   setSheetState(() => selectedDayIndex = index);
                                 }
@@ -2415,8 +3151,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: place,
-                      decoration:
-                          const InputDecoration(labelText: 'Place name'),
+                      decoration: const InputDecoration(
+                        labelText: 'Place name',
+                      ),
                       validator: _required,
                     ),
                     const SizedBox(height: 12),
@@ -2548,8 +3285,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                         onPressed: _syncing
                             ? null
                             : () async {
-                                final index =
-                                    await _pickAndAddDayFromDropdown(context);
+                                final index = await _pickAndAddDayFromDropdown(
+                                  context,
+                                );
                                 if (index != null && context.mounted) {
                                   setSheetState(() => selectedDayIndex = index);
                                 }
@@ -2603,11 +3341,13 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                               final itineraryId = _repository.activeItineraryId;
                               if (itineraryId == null) {
                                 _toast(
-                                    'Create or load a backend itinerary first.');
+                                  'Create or load a backend itinerary first.',
+                                );
                                 return;
                               }
-                              final resolvedDayIndex =
-                                  _resolveDayIndex(selectedDayIndex);
+                              final resolvedDayIndex = _resolveDayIndex(
+                                selectedDayIndex,
+                              );
                               if (resolvedDayIndex == null) {
                                 return;
                               }
@@ -2658,8 +3398,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                                 final savedItem = saved;
                                 if (savedItem != null && mounted) {
                                   setState(() {
-                                    final oldIndex =
-                                        sourceDay.items.indexOf(item);
+                                    final oldIndex = sourceDay.items.indexOf(
+                                      item,
+                                    );
                                     if (sourceDay.id == targetDay.id &&
                                         oldIndex >= 0) {
                                       sourceDay.items[oldIndex] = savedItem;
@@ -2718,7 +3459,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       ),
     );
     if (item != null && mounted) {
-      setState(() => targetDay.items.add(item));
+      setState(() {
+        targetDay.items.add(item);
+        _sortRepositoryDays(_repository);
+      });
     }
     return item;
   }
@@ -2734,20 +3478,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       return null;
     }
     return selectedDayIndex;
-  }
-
-  Future<void> _saveActivePlan() async {
-    final itineraryId = _repository.activeItineraryId;
-    if (itineraryId == null) {
-      _toast('Create or load a backend itinerary first.');
-      return;
-    }
-    final saved = await _runBackendCommand(
-      () => widget.backend.savePlan(itineraryId),
-    );
-    if (saved) {
-      _toast('Plan saved to backend');
-    }
   }
 
   Future<void> _removeSavedTrip(SavedTrip trip) async {
@@ -2827,8 +3557,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete item?'),
-        content:
-            const Text('This removes the item from the backend itinerary.'),
+        content: const Text(
+          'This removes the item from the backend itinerary.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -2856,7 +3587,54 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                 ),
               );
               if (deleted && mounted) {
-                setState(() => targetDay!.items.remove(item));
+                setState(() {
+                  targetDay!.items.remove(item);
+                  _sortRepositoryDays(_repository);
+                });
+              }
+              if (context.mounted) {
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteDay(ItineraryDay day) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${day.date}?'),
+        content: Text(
+          day.items.isEmpty
+              ? 'This removes the date from the current itinerary.'
+              : 'This removes the date and ${_stopCountLabel(day.items.length)} from the current itinerary.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final itineraryId = _repository.activeItineraryId;
+              if (itineraryId == null) {
+                Navigator.pop(context);
+                return;
+              }
+              final deleted = await _runBackendCommand(
+                () => widget.backend.deleteDay(itineraryId, day.id),
+              );
+              if (deleted && mounted) {
+                setState(() {
+                  _repository.itineraryDays.removeWhere(
+                    (item) => item.id == day.id,
+                  );
+                  _sortRepositoryDays(_repository);
+                });
               }
               if (context.mounted) {
                 Navigator.pop(context);
@@ -2939,8 +3717,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Contact / Feedback',
-                        style: Theme.of(context).textTheme.headlineSmall),
+                    Text(
+                      'Contact / Feedback',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: category,
@@ -3019,8 +3799,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Help Center',
-                  style: Theme.of(context).textTheme.headlineSmall),
+              Text(
+                'Help Center',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
               const SizedBox(height: 12),
               const SearchBar(
                 leading: Icon(Icons.search),
@@ -3055,9 +3837,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   }
 
   void _toast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -3106,9 +3888,9 @@ class _TimePickerField extends StatelessWidget {
           initialTime: value,
           builder: (context, child) {
             return MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                alwaysUse24HourFormat: true,
-              ),
+              data: MediaQuery.of(
+                context,
+              ).copyWith(alwaysUse24HourFormat: true),
               child: child ?? const SizedBox.shrink(),
             );
           },
@@ -3124,6 +3906,33 @@ class _TimePickerField extends StatelessWidget {
           prefixIcon: const Icon(Icons.schedule_outlined),
         ),
         child: Text(_formatTimeOfDay(value)),
+      ),
+    );
+  }
+}
+
+class _DatePickerTile extends StatelessWidget {
+  const _DatePickerTile({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.calendar_today_outlined),
+        ),
+        child: Text(value),
       ),
     );
   }
@@ -3172,11 +3981,7 @@ class _AppHeader extends StatelessWidget {
               ),
             ],
           ),
-          child: Icon(
-            Icons.travel_explore,
-            color: scheme.onPrimary,
-            size: 21,
-          ),
+          child: Icon(Icons.travel_explore, color: scheme.onPrimary, size: 21),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -3188,10 +3993,10 @@ class _AppHeader extends StatelessWidget {
                 'WAYFARE',
                 maxLines: 1,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 2.8,
-                    ),
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2.8,
+                ),
               ),
               const SizedBox(height: 1),
               Text(
@@ -3199,9 +4004,9 @@ class _AppHeader extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      height: 1.1,
-                    ),
+                  fontWeight: FontWeight.w800,
+                  height: 1.1,
+                ),
               ),
             ],
           ),
@@ -3245,11 +4050,11 @@ class _MetricPill extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: filled
-                      ? scheme.onPrimaryContainer
-                      : scheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w700,
-                ),
+              color: filled
+                  ? scheme.onPrimaryContainer
+                  : scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -3283,9 +4088,9 @@ class _ProfileMetricCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 value,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 2),
               Text(
@@ -3293,8 +4098,8 @@ class _ProfileMetricCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -3305,10 +4110,7 @@ class _ProfileMetricCard extends StatelessWidget {
 }
 
 class _BackendErrorPanel extends StatelessWidget {
-  const _BackendErrorPanel({
-    required this.message,
-    required this.onRetry,
-  });
+  const _BackendErrorPanel({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -3335,7 +4137,8 @@ class _BackendErrorPanel extends StatelessWidget {
                   Text(message),
                   const SizedBox(height: 12),
                   const Text(
-                      'Start the backend from backend/: dart run bin/server.dart'),
+                    'Start the backend from backend/: dart run bin/server.dart',
+                  ),
                   const SizedBox(height: 16),
                   FilledButton.icon(
                     onPressed: onRetry,
@@ -3468,13 +4271,9 @@ class _HomeScreenState extends State<_HomeScreen> {
       key: const ValueKey('home-list'),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
-        _TravelHeroPanel(
-          repository: widget.repository,
-        ),
+        _TravelHeroPanel(repository: widget.repository),
         const SizedBox(height: 16),
-        const _SectionHeader(
-          title: 'Find Places',
-        ),
+        const _SectionHeader(title: 'Find Places'),
         const SizedBox(height: 10),
         SearchQueryField(
           key: const ValueKey('home-search-field'),
@@ -3506,9 +4305,7 @@ class _HomeScreenState extends State<_HomeScreen> {
           onSpotSelected: _openFeaturedScenicSpot,
         ),
         const SizedBox(height: 16),
-        const _SectionHeader(
-          title: 'System CityWalks',
-        ),
+        const _SectionHeader(title: 'System CityWalks'),
         const SizedBox(height: 10),
         for (final template in _cityWalkTemplates) ...[
           _CityWalkTemplateCard(
@@ -3544,14 +4341,13 @@ class _FeaturedScenicSection extends StatelessWidget {
     final spots = featuredScenicSpots
         .where((spot) => spot.tags.contains(selectedTag))
         .toList(growable: false);
-    final tagTotal =
-        all5AScenicSpots.where((spot) => spot.tags.contains(selectedTag)).length;
+    final tagTotal = all5AScenicSpots
+        .where((spot) => spot.tags.contains(selectedTag))
+        .length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _SectionHeader(
-          title: 'Featured 5A Scenic Spots',
-        ),
+        const _SectionHeader(title: 'Featured 5A Scenic Spots'),
         const SizedBox(height: 10),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -3656,18 +4452,14 @@ class _ScenicTagSheet extends StatelessWidget {
                       children: [
                         Text(
                           '$tag · 5A Scenic Spots',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleLarge
+                          style: Theme.of(context).textTheme.titleLarge
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'Tap a spot to search it and pick a day & time.',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: scheme.onSurfaceVariant,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -3689,8 +4481,10 @@ class _ScenicTagSheet extends StatelessWidget {
                   return ListTile(
                     key: ValueKey('scenic-sheet-${spot.name}'),
                     dense: true,
-                    visualDensity:
-                        const VisualDensity(horizontal: 0, vertical: -1),
+                    visualDensity: const VisualDensity(
+                      horizontal: 0,
+                      vertical: -1,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -3711,10 +4505,9 @@ class _ScenicTagSheet extends StatelessWidget {
                       spot.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     subtitle: Text(
                       '${spot.city} · ${spot.summary}',
@@ -3785,8 +4578,8 @@ class _FeaturedScenicCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -3794,8 +4587,8 @@ class _FeaturedScenicCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -3864,8 +4657,9 @@ class _SearchResultsPanel extends StatelessWidget {
               Icon(Icons.map_outlined, color: scheme.primary),
               const SizedBox(width: 12),
               const Expanded(
-                child:
-                    Text('No matching scenic spot. Use map pick mode instead.'),
+                child: Text(
+                  'No matching scenic spot. Use map pick mode instead.',
+                ),
               ),
               TextButton.icon(
                 onPressed: onOpenMap,
@@ -3892,10 +4686,7 @@ class _SearchResultsPanel extends StatelessWidget {
           child: Column(
             children: [
               for (final result in visibleResults) ...[
-                _SearchResultRow(
-                  result: result,
-                  onAdd: () => onAdd(result),
-                ),
+                _SearchResultRow(result: result, onAdd: () => onAdd(result)),
                 if (result != visibleResults.last)
                   const Divider(height: 1, indent: 12, endIndent: 12),
               ],
@@ -3908,10 +4699,7 @@ class _SearchResultsPanel extends StatelessWidget {
 }
 
 class _SearchResultRow extends StatelessWidget {
-  const _SearchResultRow({
-    required this.result,
-    required this.onAdd,
-  });
+  const _SearchResultRow({required this.result, required this.onAdd});
 
   final TravelSearchResult result;
   final VoidCallback onAdd;
@@ -3941,8 +4729,8 @@ class _SearchResultRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     if (shouldShowLevel) ...[
@@ -3957,8 +4745,8 @@ class _SearchResultRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -3998,19 +4786,16 @@ class _CompactLabel extends StatelessWidget {
       child: Text(
         text,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w800,
-            ),
+          color: scheme.onSurfaceVariant,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
 }
 
 class _CityWalkTemplateCard extends StatelessWidget {
-  const _CityWalkTemplateCard({
-    required this.template,
-    required this.onCopy,
-  });
+  const _CityWalkTemplateCard({required this.template, required this.onCopy});
 
   final CityWalkTemplate template;
   final VoidCallback onCopy;
@@ -4048,17 +4833,15 @@ class _CityWalkTemplateCard extends StatelessWidget {
                     children: [
                       Text(
                         template.title,
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         template.summary,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -4116,10 +4899,7 @@ class _CityWalkTemplateCard extends StatelessWidget {
 }
 
 class _CityWalkStopPreview extends StatelessWidget {
-  const _CityWalkStopPreview({
-    required this.index,
-    required this.stop,
-  });
+  const _CityWalkStopPreview({required this.index, required this.stop});
 
   final int index;
   final CityWalkStop stop;
@@ -4140,9 +4920,9 @@ class _CityWalkStopPreview extends StatelessWidget {
           child: Text(
             '$index',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: scheme.onSecondaryContainer,
-                  fontWeight: FontWeight.w800,
-                ),
+              color: scheme.onSecondaryContainer,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
         const SizedBox(width: 10),
@@ -4154,17 +4934,17 @@ class _CityWalkStopPreview extends StatelessWidget {
                 stop.place,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               Text(
                 '${stop.time} | ${stop.activity}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -4354,17 +5134,17 @@ class _AdaptiveNavigationRail extends StatelessWidget {
 }
 
 class _TravelHeroPanel extends StatelessWidget {
-  const _TravelHeroPanel({
-    required this.repository,
-  });
+  const _TravelHeroPanel({required this.repository});
 
   final TravelDataRepository repository;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final itemCount = repository.itineraryDays
-        .fold<int>(0, (sum, day) => sum + day.items.length);
+    final itemCount = repository.itineraryDays.fold<int>(
+      0,
+      (sum, day) => sum + day.items.length,
+    );
     final dayCount = repository.itineraryDays.length;
     final nextPlan = _nextUpcomingPlanItem(repository.itineraryDays);
     return Card.filled(
@@ -4384,9 +5164,9 @@ class _TravelHeroPanel extends StatelessWidget {
                       Text(
                         repository.activeItineraryTitle,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: scheme.onPrimaryContainer,
-                            ),
+                          fontWeight: FontWeight.w800,
+                          color: scheme.onPrimaryContainer,
+                        ),
                       ),
                       const SizedBox(height: 6),
                       Text(
@@ -4394,8 +5174,8 @@ class _TravelHeroPanel extends StatelessWidget {
                             ? 'No planned stops yet. Copy a CityWalk or add a place from search.'
                             : 'Synced with backend and ready for route planning.',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: scheme.onPrimaryContainer,
-                            ),
+                          color: scheme.onPrimaryContainer,
+                        ),
                       ),
                     ],
                   ),
@@ -4443,10 +5223,8 @@ class _TravelHeroPanel extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Next up · ${nextPlan.day.title} | ${nextPlan.day.date} | ${nextPlan.item.time}',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelMedium
+                            'Next up · ${nextPlan.day.date} | ${nextPlan.item.time}',
+                            style: Theme.of(context).textTheme.labelMedium
                                 ?.copyWith(color: scheme.onSurfaceVariant),
                           ),
                           Text(
@@ -4454,9 +5232,7 @@ class _TravelHeroPanel extends StatelessWidget {
                             key: const ValueKey('home-next-itinerary-place'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyLarge
+                            style: Theme.of(context).textTheme.bodyLarge
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                         ],
@@ -4534,8 +5310,9 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   var _mapInputLocked = false;
   LatLng? _selectedMapPoint;
   AmapPickResult? _selectedMapPick;
-  late final Set<String> _selectedCategories =
-      _allPlaces.map((place) => place.category).toSet();
+  late final Set<String> _selectedCategories = _allPlaces
+      .map((place) => place.category)
+      .toSet();
 
   @override
   void dispose() {
@@ -4544,37 +5321,11 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   }
 
   List<MapPlace> get _scheduledPlaces {
-    final items = <MapPlace>[];
-    for (var dayIndex = 0; dayIndex < widget.itineraryDays.length; dayIndex++) {
-      final day = widget.itineraryDays[dayIndex];
-      for (final item in day.items) {
-        final point = item.point;
-        if (point == null) {
-          continue;
-        }
-        items.add(
-          MapPlace(
-            id: 'scheduled-${item.id}',
-            name: item.place,
-            category: 'Day ${dayIndex + 1}',
-            distance: day.title,
-            description: '${item.time} | ${item.activity}',
-            rating: item.status,
-            point: point,
-            icon: Icons.event_available_outlined,
-          ),
-        );
-      }
-    }
-    return items;
+    return widget.places;
   }
 
   List<MapPlace> get _allPlaces {
-    return [
-      ...widget.places,
-      ..._searchPlaces,
-      ..._scheduledPlaces,
-    ];
+    return [..._searchPlaces, ..._scheduledPlaces];
   }
 
   List<MapPlace> get _searchPlaces {
@@ -4595,11 +5346,16 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   }
 
   List<MapPlace> get _visiblePlaces {
-    final places = _mode == _MapMode.planned ? _scheduledPlaces : _allPlaces;
+    if (_mode == _MapMode.planned) {
+      return _scheduledPlaces;
+    }
+    final places = _allPlaces;
     return places
-        .where((place) =>
-            _selectedCategories.contains(place.category) ||
-            place.category.startsWith('Day '))
+        .where(
+          (place) =>
+              _selectedCategories.contains(place.category) ||
+              place.id.startsWith('scheduled-'),
+        )
         .toList();
   }
 
@@ -4607,6 +5363,9 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final categories = _allPlaces.map((place) => place.category).toSet();
+    _selectedCategories.addAll(
+      categories.where((category) => category != 'Search'),
+    );
     return Column(
       children: [
         Padding(
@@ -4774,8 +5533,10 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                           padding: const EdgeInsets.all(12),
                           child: Row(
                             children: [
-                              Icon(Icons.add_location_alt_outlined,
-                                  color: scheme.primary),
+                              Icon(
+                                Icons.add_location_alt_outlined,
+                                color: scheme.primary,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
@@ -4863,7 +5624,8 @@ class _ExploreScreenState extends State<_ExploreScreen> {
     if (kIsWeb) {
       return false;
     }
-    final supportedPlatform = defaultTargetPlatform == TargetPlatform.android ||
+    final supportedPlatform =
+        defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS;
     final hasKey = defaultTargetPlatform == TargetPlatform.android
         ? _amapAndroidKey.isNotEmpty
@@ -4908,10 +5670,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
           .toList(growable: false);
       if (points.length > 1) {
         segments.add(
-          AmapRouteSegment(
-            points: points,
-            color: _dayColor(dayIndex),
-          ),
+          AmapRouteSegment(points: points, color: _dayColor(dayIndex)),
         );
       }
     }
@@ -4980,10 +5739,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
 
   void _handleAmapTap(amap_base.LatLng point) {
     final selected = LatLng(point.latitude, point.longitude);
-    final pick = AmapPickResult(
-      point: selected,
-      name: 'Selected map point',
-    );
+    final pick = AmapPickResult(point: selected, name: 'Selected map point');
     _openMapPickSheet(pick);
   }
 
@@ -5159,7 +5915,9 @@ class _AmapSetupPanel extends StatelessWidget {
           ],
           const SizedBox(height: 12),
           const _SectionHeader(
-              title: 'Current Map Markers', action: 'AMap data'),
+            title: 'Current Map Markers',
+            action: 'AMap data',
+          ),
           const SizedBox(height: 10),
           for (final place in places) ...[
             _InfoTile(
@@ -5271,8 +6029,8 @@ class _MapStatusBar extends StatelessWidget {
                 pickMode
                     ? 'AMap point-pick mode | tap map to add itinerary'
                     : mode == _MapMode.explore
-                        ? 'AMap exploration | drag and zoom normally'
-                        : 'Planned route view | $visibleCount visible stops',
+                    ? 'AMap exploration | drag and zoom normally'
+                    : 'Planned route view | $visibleCount visible stops',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelLarge,
@@ -5292,28 +6050,35 @@ amap_base.LatLng _toAmapLatLng(LatLng point) {
 
 class _ItineraryScreen extends StatelessWidget {
   const _ItineraryScreen({
+    required this.title,
     required this.days,
+    required this.onCreateItinerary,
     required this.onAddDay,
+    required this.onDeleteDay,
     required this.onEdit,
+    required this.onMove,
     required this.onDelete,
     required this.onReorder,
     required this.onDuplicate,
     required this.onOpenMap,
-    required this.onSave,
   });
 
+  final String title;
   final List<ItineraryDay> days;
+  final VoidCallback onCreateItinerary;
   final VoidCallback onAddDay;
+  final ValueChanged<ItineraryDay> onDeleteDay;
   final ValueChanged<ItineraryItem> onEdit;
+  final ValueChanged<ItineraryItem> onMove;
   final ValueChanged<ItineraryItem> onDelete;
   final void Function(ItineraryDay day, int oldIndex, int newIndex) onReorder;
   final void Function(ItineraryDay day, ItineraryItem item) onDuplicate;
   final VoidCallback onOpenMap;
-  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final stopCount = days.fold<int>(0, (sum, day) => sum + day.items.length);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
       children: [
@@ -5327,18 +6092,18 @@ class _ItineraryScreen extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.route_outlined,
-                        color: scheme.onPrimaryContainer),
+                    Icon(
+                      Icons.route_outlined,
+                      color: scheme.onPrimaryContainer,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${days.length} day plan',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
+                            title,
+                            style: Theme.of(context).textTheme.titleLarge
                                 ?.copyWith(
                                   color: scheme.onPrimaryContainer,
                                   fontWeight: FontWeight.w800,
@@ -5346,13 +6111,9 @@ class _ItineraryScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Local draft now supports day creation, targeted add, edit, duplicate, and drag reorder.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(
-                                  color: scheme.onPrimaryContainer,
-                                ),
+                            '${days.length} dates · $stopCount stops · current itinerary',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: scheme.onPrimaryContainer),
                           ),
                         ],
                       ),
@@ -5364,15 +6125,15 @@ class _ItineraryScreen extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    FilledButton.icon(
-                      onPressed: onSave,
-                      icon: const Icon(Icons.save_outlined),
-                      label: const Text('Save Plan'),
+                    FilledButton.tonalIcon(
+                      onPressed: onCreateItinerary,
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('New Itinerary'),
                     ),
                     FilledButton.tonalIcon(
                       onPressed: onAddDay,
                       icon: const Icon(Icons.calendar_month_outlined),
-                      label: const Text('Add Day'),
+                      label: const Text('Add Date'),
                     ),
                     OutlinedButton.icon(
                       onPressed: onOpenMap,
@@ -5393,11 +6154,14 @@ class _ItineraryScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('No itinerary days yet',
-                      style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'No itinerary days yet',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
                   const Text(
-                      'Create a day first, then add attractions or activities.'),
+                    'Create a day first, then add attractions or activities.',
+                  ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: onAddDay,
@@ -5411,55 +6175,198 @@ class _ItineraryScreen extends StatelessWidget {
         ],
         const SizedBox(height: 16),
         for (final day in days) ...[
-          _SectionHeader(title: day.title, action: '${day.date} | ${day.city}'),
-          const SizedBox(height: 4),
-          Text(day.reminder),
-          const SizedBox(height: 10),
-          if (day.items.isEmpty)
-            Card.outlined(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'No activities yet. Use the add button to create the first item.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-            )
-          else
-            ReorderableListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              buildDefaultDragHandles: false,
-              itemCount: day.items.length,
-              // onReorderItem only exists on Flutter >=3.42, and this project
-              // must still build on 3.41 stable. Stay on the deprecated
-              // onReorder, which reports newIndex before the dragged item is
-              // removed and therefore needs the classic adjustment.
-              // ignore: deprecated_member_use
-              onReorder: (oldIndex, newIndex) {
-                if (newIndex > oldIndex) {
-                  newIndex -= 1;
-                }
-                onReorder(day, oldIndex, newIndex);
-              },
-              itemBuilder: (context, index) {
-                final item = day.items[index];
-                return Padding(
-                  key: ValueKey(item.id),
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _ItineraryItemCard(
-                    item: item,
-                    reorderIndex: index,
-                    onEdit: () => onEdit(item),
-                    onDelete: () => onDelete(item),
-                    onDuplicate: () => onDuplicate(day, item),
-                    onOpenMap: onOpenMap,
-                  ),
-                );
-              },
-            ),
+          _ItineraryDayRouteCard(
+            day: day,
+            onDeleteDay: () => onDeleteDay(day),
+            onEdit: onEdit,
+            onMove: onMove,
+            onDelete: onDelete,
+            onReorder: onReorder,
+            onDuplicate: onDuplicate,
+            onOpenMap: onOpenMap,
+          ),
           const SizedBox(height: 10),
         ],
+      ],
+    );
+  }
+}
+
+class _ItineraryDayRouteCard extends StatelessWidget {
+  const _ItineraryDayRouteCard({
+    required this.day,
+    required this.onDeleteDay,
+    required this.onEdit,
+    required this.onMove,
+    required this.onDelete,
+    required this.onReorder,
+    required this.onDuplicate,
+    required this.onOpenMap,
+  });
+
+  final ItineraryDay day;
+  final VoidCallback onDeleteDay;
+  final ValueChanged<ItineraryItem> onEdit;
+  final ValueChanged<ItineraryItem> onMove;
+  final ValueChanged<ItineraryItem> onDelete;
+  final void Function(ItineraryDay day, int oldIndex, int newIndex) onReorder;
+  final void Function(ItineraryDay day, ItineraryItem item) onDuplicate;
+  final VoidCallback onOpenMap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card.filled(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.52),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.calendar_month_outlined,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        day.date,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        day.reminder.trim().isEmpty
+                            ? 'No reminder for this date.'
+                            : day.reminder,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _CompactLabel(text: _stopCountLabel(day.items.length)),
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Delete date',
+                  onPressed: onDeleteDay,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _MetricPill(
+                  icon: Icons.location_city_outlined,
+                  label: day.city,
+                  filled: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Divider(color: scheme.outlineVariant),
+            const SizedBox(height: 8),
+            if (day.items.isEmpty)
+              _ItineraryEmptyStopPreview(onOpenMap: onOpenMap)
+            else
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                itemCount: day.items.length,
+                // onReorderItem only exists on Flutter >=3.42, and this project
+                // must still build on 3.41 stable. Stay on the deprecated
+                // onReorder, which reports newIndex before the dragged item is
+                // removed and therefore needs the classic adjustment.
+                // ignore: deprecated_member_use
+                onReorder: (oldIndex, newIndex) {
+                  if (newIndex > oldIndex) {
+                    newIndex -= 1;
+                  }
+                  onReorder(day, oldIndex, newIndex);
+                },
+                itemBuilder: (context, index) {
+                  final item = day.items[index];
+                  return Padding(
+                    key: ValueKey(item.id),
+                    padding: EdgeInsets.only(
+                      bottom: index == day.items.length - 1 ? 0 : 8,
+                    ),
+                    child: _ItineraryItemCard(
+                      item: item,
+                      reorderIndex: index,
+                      onEdit: () => onEdit(item),
+                      onMove: () => onMove(item),
+                      onDelete: () => onDelete(item),
+                      onDuplicate: () => onDuplicate(day, item),
+                      onOpenMap: onOpenMap,
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ItineraryEmptyStopPreview extends StatelessWidget {
+  const _ItineraryEmptyStopPreview({required this.onOpenMap});
+
+  final VoidCallback onOpenMap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Icon(Icons.add, size: 16, color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'No stops yet. Add a place from search or pick a point on the map.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: onOpenMap,
+          icon: const Icon(Icons.map_outlined),
+          label: const Text('Map'),
+        ),
       ],
     );
   }
@@ -5470,6 +6377,7 @@ class _ItineraryItemCard extends StatelessWidget {
     required this.item,
     required this.reorderIndex,
     required this.onEdit,
+    required this.onMove,
     required this.onDelete,
     required this.onDuplicate,
     required this.onOpenMap,
@@ -5478,6 +6386,7 @@ class _ItineraryItemCard extends StatelessWidget {
   final ItineraryItem item;
   final int reorderIndex;
   final VoidCallback onEdit;
+  final VoidCallback onMove;
   final VoidCallback onDelete;
   final VoidCallback onDuplicate;
   final VoidCallback onOpenMap;
@@ -5485,82 +6394,112 @@ class _ItineraryItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card.outlined(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 64,
-              child: Column(
-                children: [
-                  Icon(Icons.circle, color: scheme.primary, size: 14),
-                  const SizedBox(height: 8),
-                  Text(
-                    item.time,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                ],
-              ),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: scheme.secondaryContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '${reorderIndex + 1}',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.onSecondaryContainer,
+              fontWeight: FontWeight.w800,
             ),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.place,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${item.time} | ${item.activity}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              if (item.note.trim().isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  item.note,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
                 children: [
-                  Text(item.activity,
-                      style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 4),
-                  Text(item.place),
-                  const SizedBox(height: 8),
-                  Text(item.note),
-                  const SizedBox(height: 8),
-                  Chip(label: Text(item.status)),
-                  Wrap(
-                    spacing: 4,
-                    children: [
-                      IconButton(
-                        tooltip: 'Edit',
-                        onPressed: onEdit,
-                        icon: const Icon(Icons.edit_outlined),
-                      ),
-                      IconButton(
-                        tooltip: 'Delete',
-                        onPressed: onDelete,
-                        icon: const Icon(Icons.delete_outline),
-                      ),
-                      IconButton(
-                        tooltip: 'Duplicate',
-                        onPressed: onDuplicate,
-                        icon: const Icon(Icons.copy_outlined),
-                      ),
-                      Tooltip(
-                        message: 'Drag to reorder',
-                        child: ReorderableDragStartListener(
-                          index: reorderIndex,
-                          child: SizedBox.square(
-                            dimension: 40,
-                            child: Icon(
-                              Icons.drag_indicator,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
+                  IconButton(
+                    tooltip: 'Edit',
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  IconButton(
+                    tooltip: 'Move to date',
+                    onPressed: onMove,
+                    icon: const Icon(Icons.drive_file_move_outlined),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  IconButton(
+                    tooltip: 'Delete',
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  IconButton(
+                    tooltip: 'Duplicate',
+                    onPressed: onDuplicate,
+                    icon: const Icon(Icons.copy_outlined),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  IconButton(
+                    tooltip: 'Open map',
+                    onPressed: onOpenMap,
+                    icon: const Icon(Icons.map_outlined),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  Tooltip(
+                    message: 'Drag to move within this date',
+                    child: ReorderableDragStartListener(
+                      index: reorderIndex,
+                      child: SizedBox.square(
+                        dimension: 40,
+                        child: Icon(
+                          Icons.drag_indicator,
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Open map',
-                        onPressed: onOpenMap,
-                        icon: const Icon(Icons.map_outlined),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -5568,12 +6507,16 @@ class _ItineraryItemCard extends StatelessWidget {
 class _SavedScreen extends StatefulWidget {
   const _SavedScreen({
     required this.trips,
+    required this.activeItineraryId,
+    required this.onSelect,
     required this.onAdd,
     required this.onShowInfo,
     required this.onRemove,
   });
 
   final List<SavedTrip> trips;
+  final String? activeItineraryId;
+  final ValueChanged<SavedTrip> onSelect;
   final ValueChanged<SavedTrip> onAdd;
   final void Function(String title, String message) onShowInfo;
   final ValueChanged<SavedTrip> onRemove;
@@ -5595,138 +6538,137 @@ class _SavedScreenState extends State<_SavedScreen> {
   @override
   Widget build(BuildContext context) {
     final query = _savedSearch.text.trim().toLowerCase();
-    final availableFolders = widget.trips
+    final availableFolderSet = widget.trips
         .map((trip) => trip.folder)
         .where((folder) => folder.trim().isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    final filteredTrips = widget.trips.where((trip) {
-      final matchesSearch = query.isEmpty ||
-          trip.destination.toLowerCase().contains(query) ||
-          trip.folder.toLowerCase().contains(query) ||
-          trip.dateRange.toLowerCase().contains(query);
-      final matchesFolder =
-          _selectedFolders.isEmpty || _selectedFolders.contains(trip.folder);
-      return matchesSearch && matchesFolder;
-    }).toList(growable: false);
-    final upcomingTrips =
-        filteredTrips.where((trip) => trip.upcoming).toList(growable: false);
-    final pastTrips =
-        filteredTrips.where((trip) => !trip.upcoming).toList(growable: false);
-    final filterActive = query.isNotEmpty || _selectedFolders.isNotEmpty;
+        .toSet();
+    final availableFolders =
+        widget.trips
+            .map((trip) => trip.folder)
+            .where((folder) => folder.trim().isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final activeFolders = _selectedFolders
+        .where((folder) => availableFolderSet.contains(folder))
+        .toSet();
+    final filteredTrips = widget.trips
+        .where((trip) {
+          final matchesSearch =
+              query.isEmpty ||
+              trip.destination.toLowerCase().contains(query) ||
+              trip.folder.toLowerCase().contains(query) ||
+              trip.dateRange.toLowerCase().contains(query) ||
+              trip.itemCount.toLowerCase().contains(query) ||
+              _savedTripTypeLabel(trip).toLowerCase().contains(query);
+          final matchesFolder =
+              activeFolders.isEmpty || activeFolders.contains(trip.folder);
+          return matchesSearch && matchesFolder;
+        })
+        .toList(growable: false);
+    final itineraryCount = widget.trips
+        .where((trip) => trip.isItinerary)
+        .length;
+    final filterActive = query.isNotEmpty || activeFolders.isNotEmpty;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
         _SavedWorkspaceSummary(
           total: widget.trips.length,
-          upcoming: widget.trips.where((trip) => trip.upcoming).length,
+          itineraries: itineraryCount,
           folders: availableFolders.length,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         SearchBar(
           controller: _savedSearch,
           leading: const Icon(Icons.search),
           hintText: 'Search saved items',
+          trailing: query.isEmpty
+              ? null
+              : [
+                  IconButton(
+                    tooltip: 'Clear search',
+                    onPressed: () {
+                      _savedSearch.clear();
+                      setState(() {});
+                    },
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
           onChanged: (_) => setState(() {}),
         ),
-        const SizedBox(height: 12),
-        _SectionHeader(
-          title: 'Collections',
-          action: _selectedFolders.isEmpty
-              ? 'All folders'
-              : _selectedFolders.join(' | '),
-        ),
-        const SizedBox(height: 10),
-        if (availableFolders.isEmpty)
-          const _InfoTile(
-            icon: Icons.bookmark_border,
-            text: 'Saved destinations and copied trips will appear here.',
-          )
-        else
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final folder in availableFolders) ...[
-                  FilterChip(
-                    label: Text(folder),
-                    selected: _selectedFolders.contains(folder),
-                    onSelected: (selected) {
-                      setState(() {
-                        selected
-                            ? _selectedFolders.add(folder)
-                            : _selectedFolders.remove(folder);
-                      });
-                    },
-                    visualDensity: VisualDensity.comfortable,
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-              ],
-            ),
+        if (availableFolders.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _SectionHeader(
+            title: 'Collections',
+            action: activeFolders.isEmpty
+                ? 'All collections'
+                : '${activeFolders.length} selected',
           ),
-        const SizedBox(height: 16),
-        if (filterActive && filteredTrips.isEmpty) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilterChip(
+                label: const Text('All'),
+                selected: activeFolders.isEmpty,
+                onSelected: (_) => setState(_selectedFolders.clear),
+              ),
+              for (final folder in availableFolders)
+                FilterChip(
+                  label: Text(folder),
+                  selected: activeFolders.contains(folder),
+                  onSelected: (selected) {
+                    setState(() {
+                      selected
+                          ? _selectedFolders.add(folder)
+                          : _selectedFolders.remove(folder);
+                    });
+                  },
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 18),
+        if (widget.trips.isEmpty) ...[
           const _EmptyStateCard(
-            icon: Icons.search_off_outlined,
-            title: 'No matching saved trips',
-            message:
-                'Clear search text or folder chips to see all saved trips.',
+            icon: Icons.bookmark_add_outlined,
+            title: 'Nothing saved yet',
+            message: 'Save a destination or plan to build this collection.',
           ),
           const SizedBox(height: 16),
-        ],
-        _SectionHeader(
-          title: 'Upcoming',
-          action: '${upcomingTrips.length} items',
-        ),
-        const SizedBox(height: 10),
-        if (upcomingTrips.isEmpty)
+        ] else if (filterActive && filteredTrips.isEmpty) ...[
           const _EmptyStateCard(
-            icon: Icons.event_busy_outlined,
-            title: 'No upcoming trips yet',
+            icon: Icons.search_off_outlined,
+            title: 'No matching saved items',
             message:
-                'Save a destination or copy a CityWalk to build your next trip.',
-          )
-        else ...[
-          for (final trip in upcomingTrips) ...[
+                'Clear the search text or collection chips to see all saved items.',
+          ),
+          const SizedBox(height: 16),
+        ] else ...[
+          _SectionHeader(
+            title: 'Saved itineraries',
+            action: '${filteredTrips.length} shown',
+          ),
+          const SizedBox(height: 10),
+          for (final trip in filteredTrips) ...[
             _SavedTripCard(
               trip: trip,
+              selected:
+                  trip.isItinerary &&
+                  trip.refId != null &&
+                  trip.refId == widget.activeItineraryId,
+              onSelect: () => widget.onSelect(trip),
               onAdd: () => widget.onAdd(trip),
               onDetail: () => widget.onShowInfo(
                 trip.destination,
-                '${trip.dateRange}\n${trip.itemCount}\n${trip.lastUpdated}',
+                '${_savedTripTypeLabel(trip)}\n${trip.dateRange}\n'
+                '${trip.itemCount}\n${trip.lastUpdated}',
               ),
               onRemove: () => widget.onRemove(trip),
             ),
-            const SizedBox(height: 8),
-          ],
-        ],
-        const SizedBox(height: 16),
-        _SectionHeader(
-          title: 'Past & Archive',
-          action: '${pastTrips.length} items',
-        ),
-        const SizedBox(height: 10),
-        if (pastTrips.isEmpty)
-          const _EmptyStateCard(
-            icon: Icons.history_outlined,
-            title: 'No past trips',
-            message: 'Completed or archived trips will appear here later.',
-          )
-        else ...[
-          for (final trip in pastTrips) ...[
-            _SavedTripCard(
-              trip: trip,
-              onAdd: () => widget.onAdd(trip),
-              onDetail: () => widget.onShowInfo(
-                trip.destination,
-                '${trip.dateRange}\n${trip.itemCount}\n${trip.lastUpdated}',
-              ),
-              onRemove: () => widget.onRemove(trip),
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
           ],
         ],
       ],
@@ -5737,47 +6679,53 @@ class _SavedScreenState extends State<_SavedScreen> {
 class _SavedWorkspaceSummary extends StatelessWidget {
   const _SavedWorkspaceSummary({
     required this.total,
-    required this.upcoming,
+    required this.itineraries,
     required this.folders,
   });
 
   final int total;
-  final int upcoming;
+  final int itineraries;
   final int folders;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          children: [
-            _SavedMetric(
-              icon: Icons.bookmark_outline,
-              value: '$total',
-              label: 'Saved',
-            ),
-            VerticalDivider(
-                width: 1, indent: 6, endIndent: 6, color: scheme.outlineVariant),
-            _SavedMetric(
-              icon: Icons.event_available_outlined,
-              value: '$upcoming',
-              label: 'Upcoming',
-            ),
-            VerticalDivider(
-                width: 1, indent: 6, endIndent: 6, color: scheme.outlineVariant),
-            _SavedMetric(
-              icon: Icons.folder_outlined,
-              value: '$folders',
-              label: 'Folders',
-            ),
-          ],
+    return Card.filled(
+      color: scheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              _SavedMetric(
+                icon: Icons.bookmark_outline,
+                value: '$total',
+                label: 'Saved',
+              ),
+              VerticalDivider(
+                width: 1,
+                indent: 6,
+                endIndent: 6,
+                color: scheme.outlineVariant,
+              ),
+              _SavedMetric(
+                icon: Icons.route_outlined,
+                value: '$itineraries',
+                label: 'Plans',
+              ),
+              VerticalDivider(
+                width: 1,
+                indent: 6,
+                endIndent: 6,
+                color: scheme.outlineVariant,
+              ),
+              _SavedMetric(
+                icon: Icons.folder_outlined,
+                value: '$folders',
+                label: 'Folders',
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -5799,32 +6747,32 @@ class _SavedMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Expanded(
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(
-            radius: 15,
-            backgroundColor: scheme.secondaryContainer,
-            child: Icon(icon, size: 16, color: scheme.onSecondaryContainer),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: scheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(17),
+            ),
+            child: Icon(icon, size: 18, color: scheme.onSecondaryContainer),
           ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                value,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-              ),
-            ],
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -5832,15 +6780,35 @@ class _SavedMetric extends StatelessWidget {
   }
 }
 
+IconData _savedTripIcon(SavedTrip trip) {
+  return switch (trip.type) {
+    'itinerary' => Icons.route_outlined,
+    'place' => Icons.place_outlined,
+    _ => Icons.bookmark_border,
+  };
+}
+
+String _savedTripTypeLabel(SavedTrip trip) {
+  return switch (trip.type) {
+    'itinerary' => 'Plan',
+    'place' => 'Place',
+    _ => 'Destination',
+  };
+}
+
 class _SavedTripCard extends StatelessWidget {
   const _SavedTripCard({
     required this.trip,
+    required this.selected,
+    required this.onSelect,
     required this.onDetail,
     required this.onAdd,
     required this.onRemove,
   });
 
   final SavedTrip trip;
+  final bool selected;
+  final VoidCallback onSelect;
   final VoidCallback onDetail;
   final VoidCallback onAdd;
   final VoidCallback onRemove;
@@ -5848,92 +6816,95 @@ class _SavedTripCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card.outlined(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onDetail,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-          child: Row(
+    final kindLabel = _savedTripTypeLabel(trip);
+    return Card.filled(
+      color: selected ? scheme.secondaryContainer : scheme.surfaceContainerLow,
+      child: ListTile(
+        onTap: onSelect,
+        contentPadding: const EdgeInsetsDirectional.fromSTEB(16, 8, 8, 8),
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: trip.isItinerary
+                ? scheme.primaryContainer
+                : scheme.tertiaryContainer,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(
+            _savedTripIcon(trip),
+            color: trip.isItinerary
+                ? scheme.onPrimaryContainer
+                : scheme.onTertiaryContainer,
+            size: 22,
+          ),
+        ),
+        title: Text(
+          trip.destination,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: selected ? scheme.onSecondaryContainer : null,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: trip.upcoming
-                      ? scheme.primaryContainer
-                      : scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  trip.upcoming
-                      ? Icons.event_available_outlined
-                      : Icons.history_outlined,
-                  color: trip.upcoming
-                      ? scheme.onPrimaryContainer
+              Text(
+                '${trip.dateRange} - ${trip.itemCount}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: selected
+                      ? scheme.onSecondaryContainer
                       : scheme.onSurfaceVariant,
-                  size: 21,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            trip.destination,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        if (trip.folder.trim().isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          _CompactLabel(text: trip.folder),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${trip.dateRange} · ${trip.itemCount}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 6),
-              SizedBox.square(
-                dimension: 36,
-                child: IconButton.filledTonal(
-                  tooltip: 'Add to itinerary',
-                  padding: EdgeInsets.zero,
-                  iconSize: 20,
-                  onPressed: onAdd,
-                  icon: const Icon(Icons.add),
-                ),
-              ),
-              SizedBox.square(
-                dimension: 36,
-                child: IconButton(
-                  tooltip: 'Remove',
-                  padding: EdgeInsets.zero,
-                  iconSize: 20,
-                  onPressed: onRemove,
-                  icon: const Icon(Icons.delete_outline),
-                ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _CompactLabel(text: kindLabel),
+                  if (selected) const _CompactLabel(text: 'Current'),
+                  if (trip.folder.trim().isNotEmpty)
+                    _CompactLabel(text: trip.folder),
+                ],
               ),
             ],
           ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (trip.isItinerary)
+              IconButton.filledTonal(
+                tooltip: selected ? 'Current itinerary' : 'Switch itinerary',
+                onPressed: selected ? null : onSelect,
+                icon: Icon(
+                  selected ? Icons.check_circle : Icons.swap_horiz_outlined,
+                ),
+              )
+            else
+              IconButton.filledTonal(
+                tooltip: 'Add to itinerary',
+                onPressed: onAdd,
+                icon: const Icon(Icons.add),
+              ),
+            IconButton(
+              tooltip: 'Details',
+              onPressed: onDetail,
+              icon: const Icon(Icons.info_outline),
+            ),
+            IconButton(
+              tooltip: 'Remove',
+              onPressed: onRemove,
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ],
         ),
       ),
     );
@@ -5969,8 +6940,10 @@ class _ProfileScreenState extends State<_ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final stopCount = widget.repository.itineraryDays
-        .fold<int>(0, (sum, day) => sum + day.items.length);
+    final stopCount = widget.repository.itineraryDays.fold<int>(
+      0,
+      (sum, day) => sum + day.items.length,
+    );
     final dayCount = widget.repository.itineraryDays.length;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -5998,16 +6971,16 @@ class _ProfileScreenState extends State<_ProfileScreen> {
                       Text(
                         widget.user.displayName,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: scheme.onPrimaryContainer,
-                              fontWeight: FontWeight.w800,
-                            ),
+                          color: scheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         widget.user.identifier,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: scheme.onPrimaryContainer,
-                            ),
+                          color: scheme.onPrimaryContainer,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       const Wrap(
@@ -6143,10 +7116,9 @@ class _SectionHeader extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.end,
-              style: Theme.of(context)
-                  .textTheme
-                  .labelLarge
-                  ?.copyWith(color: Theme.of(context).colorScheme.primary),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+              ),
             ),
           ),
       ],
@@ -6206,15 +7178,15 @@ class _EmptyStateCard extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     message,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),

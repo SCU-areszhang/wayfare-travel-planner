@@ -21,7 +21,7 @@ The local demo covers:
 From the `IDM/` project root:
 
 ```bash
-dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt
+dart run tool/local_demo.dart --rebuild-web --amap-key-file=Amap.csv
 ```
 
 Expected key file fields:
@@ -111,7 +111,7 @@ this workstation unless production release inputs are supplied.
 
 ## Secret Handling
 
-- Do not commit `../高德.txt`.
+- Do not commit `Amap.csv` or local key files.
 - Do not paste real AMap keys or security codes into source files.
 - Do not commit `build/`.
 - Pass secrets through `--amap-key-file`, `--amap-js-security-code`, or

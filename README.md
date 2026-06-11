@@ -87,7 +87,9 @@ Verify: open <http://127.0.0.1:8080/health>.
 
 ```bash
 flutter pub get
-flutter run -d chrome        # or: flutter run (pick a device)
+flutter run -d chrome                 # or: flutter run (pick a device)
+# or with AMap keys from Amap.csv:
+dart run tool/flutter_run.dart        # hot reload, auto-detects web device
 ```
 
 Without an AMap key the map page shows a setup panel instead of a blank map —
@@ -144,12 +146,18 @@ flutter run --dart-define=AMAP_ANDROID_KEY=your_amap_android_key
 
 Alternatively keep keys in a local **`Amap.csv`** next to `pubspec.yaml`
 (git-ignored — copy [`AmapExample.csv`](AmapExample.csv) and fill in real
-values). The demo tool picks it up automatically:
+values). Both the hot-reload tool and the demo tool pick it up automatically:
 
 ```text
 Wayfare_WebSvc, <backend web-service key>
 Wayfare_WebJS, <web js key>
 Security_code, <js security code>
+```
+
+Use it for hot-reload development:
+
+```bash
+dart run tool/flutter_run.dart
 ```
 
 The legacy `Wayfare_WebJS api_key:<key>` / `Security_code:<code>` format is
@@ -302,6 +310,6 @@ IDM/
 │   └── data/wayfare.sqlite       # local prototype data (git-ignored)
 ├── web/                          # web shell + self-destruct service worker
 ├── test/                         # widget + scenic-data tests
-├── tool/                         # local_demo, local_smoke, release_readiness
+├── tool/                         # flutter_run, local_demo, local_smoke, release_readiness
 └── docs/                         # requirements, UI design, runbooks
 ```

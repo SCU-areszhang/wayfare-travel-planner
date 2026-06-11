@@ -466,7 +466,7 @@ String? _extractApiKey(String line) {
 }
 
 File? _defaultAmapKeyFile() {
-  for (final path in const ['Amap.csv', '../Amap.csv', '../高德.txt']) {
+  for (final path in const ['Amap.csv', '../Amap.csv']) {
     final file = File(path);
     if (file.existsSync()) {
       return file;
@@ -508,7 +508,7 @@ Options:
   --web-port <port>           Frontend static server port, default 8092.
   --web-dir <path>            Built Flutter Web directory, default build/web.
   --rebuild-web               Rebuild Flutter Web before serving.
-  --amap-key-file <path>      Local AMap key file; by default tries Amap.csv, ../Amap.csv, then ../高德.txt.
+  --amap-key-file <path>      Local AMap key file; by default tries Amap.csv then ../Amap.csv.
   --amap-web-service-key <k>  Backend AMap Web Service key override.
   --amap-web-js-key <k>       Web AMap JS key override.
   --amap-js-security-code <c> Web AMap security code override; prefer key file or env for secrets.

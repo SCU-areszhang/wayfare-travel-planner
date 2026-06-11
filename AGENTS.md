@@ -167,6 +167,12 @@ flutter test
 flutter build web --release --pwa-strategy=none
 ```
 
+Frontend hot reload with AMap keys (auto-detects Amap.csv in project root):
+
+```bash
+dart run tool/flutter_run.dart
+```
+
 Backend, when Dart exists:
 
 ```bash
@@ -181,7 +187,7 @@ Local demo startup:
 
 ```bash
 dart run tool/local_demo.dart
-dart run tool/local_demo.dart --rebuild-web --amap-key-file=../高德.txt
+dart run tool/local_demo.dart --rebuild-web --amap-key-file=Amap.csv
 ```
 
 Local demo smoke:

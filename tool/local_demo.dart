@@ -27,7 +27,9 @@ Future<void> main(List<String> arguments) async {
   });
 
   try {
-    if (config.rebuildWeb) {
+    final webDirExists = config.webDirectory.existsSync();
+    final mustRebuild = !config.skipBuild && (config.rebuildWeb || !webDirExists);
+    if (mustRebuild) {
       await _buildWeb(config);
     }
 
@@ -273,8 +275,8 @@ Future<void> _buildWeb(_LocalDemoConfig config) async {
       '--dart-define-from-file=${defineFile.path}',
     ];
     final process = await Process.start(
-      'flutter',
-      args,
+      Platform.isWindows ? 'cmd.exe' : 'flutter',
+      Platform.isWindows ? ['/c', 'flutter', ...args] : args,
       mode: ProcessStartMode.normal,
     );
     process.stdout.transform(utf8.decoder).listen(stdout.write);
@@ -339,6 +341,7 @@ class _LocalDemoConfig {
     required this.opsToken,
     required this.amapKeys,
     required this.rebuildWeb,
+    required this.skipBuild,
   });
 
   factory _LocalDemoConfig.fromArgs(List<String> arguments) {
@@ -383,6 +386,7 @@ class _LocalDemoConfig {
           'local-demo-ops-token-with-at-least-32-chars',
       amapKeys: fileKeys.merge(cliKeys),
       rebuildWeb: arguments.contains('--rebuild-web'),
+      skipBuild: arguments.contains('--skip-build'),
     );
   }
 
@@ -396,6 +400,7 @@ class _LocalDemoConfig {
   final String opsToken;
   final AmapLocalKeys amapKeys;
   final bool rebuildWeb;
+  final bool skipBuild;
 
   Uri get apiBase => Uri.parse('http://127.0.0.1:$backendPort');
 
@@ -507,7 +512,8 @@ Options:
   --backend-port <port>       Backend port, default 8080.
   --web-port <port>           Frontend static server port, default 8092.
   --web-dir <path>            Built Flutter Web directory, default build/web.
-  --rebuild-web               Rebuild Flutter Web before serving.
+  --rebuild-web               Force rebuild Flutter Web before serving.
+  --skip-build                Skip auto-rebuild even if build/web is missing.
   --amap-key-file <path>      Local AMap key file; by default tries Amap.csv then ../Amap.csv.
   --amap-web-service-key <k>  Backend AMap Web Service key override.
   --amap-web-js-key <k>       Web AMap JS key override.

@@ -16,7 +16,8 @@ void main(List<String> args) async {
       8080;
   final databasePath =
       Platform.environment['WAYFARE_DB_PATH'] ?? 'data/wayfare.sqlite';
-  final store = SqliteStore.open(databasePath);
+  final amapWebServiceKey = _loadAmapWebServiceKey();
+  final store = SqliteStore.open(databasePath, amapWebServiceKey: amapWebServiceKey);
   final bindHost = Platform.environment['WAYFARE_BIND_HOST'] ?? '127.0.0.1';
   final bindAddress =
       InternetAddress.tryParse(bindHost) ?? InternetAddress.loopbackIPv4;
@@ -24,10 +25,48 @@ void main(List<String> args) async {
   stdout.writeln(
     'Wayfare SQLite backend listening on http://${bindAddress.address}:$port',
   );
+  if (amapWebServiceKey != null) {
+    stdout.writeln('AMap Web Service key loaded from Amap.csv.');
+  } else {
+    stdout.writeln(
+      'No AMap Web Service key found. Search will use local data only.',
+    );
+  }
 
   await for (final request in server) {
     await _handle(request, store);
   }
+}
+
+String? _loadAmapWebServiceKey() {
+  final envKey = Platform.environment['AMAP_WEB_SERVICE_KEY']?.trim();
+  if (envKey != null && envKey.isNotEmpty) {
+    return envKey;
+  }
+
+  for (final path in const ['../Amap.csv', 'Amap.csv']) {
+    final file = File(path);
+    if (!file.existsSync()) {
+      continue;
+    }
+    try {
+      for (final line in file.readAsLinesSync()) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty || trimmed.startsWith('#')) {
+          continue;
+        }
+        if (trimmed.contains('Wayfare_WebSvc')) {
+          final csv = RegExp(r',\s*([^\s,]+)\s*$').firstMatch(trimmed);
+          if (csv != null) {
+            return csv.group(1);
+          }
+        }
+      }
+    } catch (_) {
+      // Ignore parse errors for individual files.
+    }
+  }
+  return null;
 }
 
 Future<void> _handle(HttpRequest request, SqliteStore store) async {
@@ -287,6 +326,13 @@ Future<void> _handleItinerary(
       {'item': store.addDay(path[1], _validateAddDay(body))},
       status: HttpStatus.created,
     );
+  }
+
+  if (request.method == 'DELETE' &&
+      path.length == 4 &&
+      path[2] == 'days') {
+    store.deleteDay(path[1], path[3]);
+    return _json(request, {'deleted': path[3]});
   }
 
   if (request.method == 'POST' &&
@@ -605,15 +651,16 @@ class AuthSession {
 }
 
 class SqliteStore {
-  SqliteStore._(this.path, this._db);
+  SqliteStore._(this.path, this._db, {this.amapWebServiceKey});
 
   final String path;
   final Database _db;
+  final String? amapWebServiceKey;
 
-  static SqliteStore open(String path) {
+  static SqliteStore open(String path, {String? amapWebServiceKey}) {
     Directory(File(path).parent.path).createSync(recursive: true);
     final db = sqlite3.open(path);
-    final store = SqliteStore._(path, db);
+    final store = SqliteStore._(path, db, amapWebServiceKey: amapWebServiceKey);
     store._migrate();
     store._seed();
     store.pruneExpiredSessions();
@@ -1124,7 +1171,9 @@ class SqliteStore {
 
   Future<List<Map<String, Object?>>> _searchAmap(String query,
       {int limit = 20}) async {
-    final key = Platform.environment['AMAP_WEB_SERVICE_KEY']?.trim();
+    final key = (amapWebServiceKey?.trim().isNotEmpty == true)
+        ? amapWebServiceKey!.trim()
+        : Platform.environment['AMAP_WEB_SERVICE_KEY']?.trim();
     final text = query.trim();
     if (key == null || key.isEmpty || text.isEmpty) {
       return [];
@@ -1311,7 +1360,7 @@ class SqliteStore {
     final day = {
       'id': _id('day'),
       'dayIndex': body['dayIndex'] ?? days.length + 1,
-      'title': body['title'] ?? 'Day ${days.length + 1}',
+      'title': body['title'] ?? body['date'] ?? 'TBD',
       'date': body['date'] ?? 'TBD',
       'city': body['city'] ?? 'TBD',
       'reminder': body['reminder'] ?? '',
@@ -1322,6 +1371,22 @@ class SqliteStore {
     trip['updatedAt'] = DateTime.now().toIso8601String();
     _saveItinerary(trip);
     return day;
+  }
+
+  void deleteDay(String itineraryId, String dayId) {
+    final trip = itinerary(itineraryId);
+    if (trip == null) {
+      throw StateError('Itinerary not found');
+    }
+    final days = _days(trip);
+    _dayById(days, dayId);
+    days.removeWhere((entry) => entry['id'] == dayId);
+    for (var index = 0; index < days.length; index++) {
+      days[index]['dayIndex'] = index + 1;
+    }
+    trip['days'] = days;
+    trip['updatedAt'] = DateTime.now().toIso8601String();
+    _saveItinerary(trip);
   }
 
   Map<String, Object?> addItem(

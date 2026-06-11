@@ -71,30 +71,55 @@ flutter doctor
 
 ## Quick Start
 
-Two terminals: one for the backend, one for the app.
+### One-Command Local Demo (recommended)
+
+Starts backend + frontend + Smoke Test with AMap keys from `Amap.csv`:
+
+```bash
+dart run tool/local_demo.dart
+```
+
+- Auto-reads `Amap.csv` for AMap keys
+- Auto-rebuilds `flutter build web --release` if `build/web` is missing
+- Starts backend on `:8080`, web server on `:8092`
+- Runs Smoke Test, then keeps services alive
+- Works identically on **Windows, Linux, and macOS**
+
+Options:
+
+```bash
+dart run tool/local_demo.dart --rebuild-web              # force rebuild
+dart run tool/local_demo.dart --skip-build               # skip rebuild entirely
+dart run tool/local_demo.dart --amap-key-file=other.csv  # custom key file
+```
+
+### Hot Reload (debug, with AMap keys)
+
+```bash
+dart run tool/flutter_run.dart
+```
+
+- Auto-reads `Amap.csv`, auto-detects Chrome/Edge
+- Passes `AMAP_JS_KEY` via `--dart-define-from-file`
+- Supports hot reload
+
+### Manual Two-Terminal Setup
 
 **Terminal 1 — backend** (serves `http://127.0.0.1:8080`):
 
 ```bash
-cd backend
-dart pub get
-dart run bin/server.dart
+cd backend && dart pub get && dart run bin/server.dart
 ```
-
-Verify: open <http://127.0.0.1:8080/health>.
 
 **Terminal 2 — app:**
 
 ```bash
 flutter pub get
-flutter run -d chrome                 # or: flutter run (pick a device)
-# or with AMap keys from Amap.csv:
-dart run tool/flutter_run.dart        # hot reload, auto-detects web device
+flutter run -d chrome
 ```
 
-Without an AMap key the map page shows a setup panel instead of a blank map —
-everything else works. To get a real map, see
-[AMap / Gaode Keys](#amap--gaode-keys).
+Without an AMap key the map page shows a setup panel — everything else works.
+To get a real map, see [AMap / Gaode Keys](#amap--gaode-keys).
 
 ## Platform Notes
 
@@ -107,6 +132,24 @@ differences are shell syntax:
 | Set an env var | `export WAYFARE_AUTH_SECRET='...'` | `$env:WAYFARE_AUTH_SECRET='...'` |
 | Serve a folder over HTTP | `python3 -m http.server 8092 --bind 127.0.0.1 --directory build/web` | `python -m http.server 8092 --bind 127.0.0.1 --directory build/web` |
 | Path separator | `/` | `\` (but `/` also works inside Flutter/Dart tooling) |
+
+### Cross-Platform Command Reference
+
+| Command | Windows | macOS / Linux |
+| --- | --- | --- |
+| Hot reload (debug, with AMap keys) | `dart run tool/flutter_run.dart` | `dart run tool/flutter_run.dart` |
+| One-command demo + Smoke Test | `dart run tool/local_demo.dart` | `dart run tool/local_demo.dart` |
+| Force rebuild + demo | `dart run tool/local_demo.dart --rebuild-web` | `dart run tool/local_demo.dart --rebuild-web` |
+| Skip rebuild + demo | `dart run tool/local_demo.dart --skip-build` | `dart run tool/local_demo.dart --skip-build` |
+| Standalone Smoke Test | `dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092` | `dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092` |
+| Manual web release build | `flutter build web --release --pwa-strategy=none` | `flutter build web --release --pwa-strategy=none` |
+| Copy service worker | `Copy-Item web\flutter_service_worker.js build\web\flutter_service_worker.js` | `cp web/flutter_service_worker.js build/web/flutter_service_worker.js` |
+| Start backend | `cd backend; dart run bin/server.dart` | `cd backend && dart run bin/server.dart` |
+| Release readiness (local) | `dart run tool/release_readiness.dart --mode local` | `dart run tool/release_readiness.dart --mode local` |
+
+All three tools (`flutter_run.dart`, `local_demo.dart`, `local_smoke.dart`)
+auto-detect `Amap.csv` in the project root and handle Windows `cmd.exe`
+process spawning internally — no OS-specific flags needed.
 
 Platform-specific extras:
 
@@ -165,6 +208,8 @@ still accepted.
 
 ## Web Release Build
 
+For a manual release build (without the demo tool):
+
 ```bash
 flutter build web --release --pwa-strategy=none
 ```
@@ -185,36 +230,55 @@ cp web/flutter_service_worker.js build/web/flutter_service_worker.js   # macOS/L
 Copy-Item web\flutter_service_worker.js build\web\flutter_service_worker.js   # Windows
 ```
 
-Then serve it (backend must be running):
-
-```bash
-python3 -m http.server 8092 --bind 127.0.0.1 --directory build/web   # Windows: python
-```
-
-App: <http://127.0.0.1:8092>
+To include AMap keys, add `--dart-define` flags (see
+[AMap / Gaode Keys](#amap--gaode-keys)). Or use the one-command demo which
+handles this automatically: `dart run tool/local_demo.dart --rebuild-web`.
 
 ## One-Command Local Demo
 
-The demo tool starts (or reuses) the backend on `:8080`, serves the web build
-on `:8092`, runs the smoke check, and keeps both alive until you stop it:
+`dart run tool/local_demo.dart` starts (or reuses) the backend on `:8080`,
+serves the web build on `:8092`, runs the smoke check, and keeps both alive
+until you press Ctrl+C.
 
-```bash
-dart run tool/local_demo.dart
-```
+| Condition | Behavior |
+| --- | --- |
+| `build/web` missing | Auto-rebuilds `flutter build web --release` with AMap keys from `Amap.csv` |
+| `build/web` exists | Skips rebuild, serves existing build |
+| `--rebuild-web` | Forces rebuild even if `build/web` exists |
+| `--skip-build` | Skips rebuild even if `build/web` is missing |
 
-Rebuild the web bundle from your local key file first (it also restores the
-self-destruct service worker automatically):
+### Standalone Smoke Test
 
-```bash
-dart run tool/local_demo.dart --rebuild-web                 # auto-detects Amap.csv
-dart run tool/local_demo.dart --rebuild-web --amap-key-file=path/to/keys.csv
-```
-
-Standalone smoke check (backend health, login, authenticated `/me`, scenic
-search, served web shell):
+If the backend and frontend are already running separately:
 
 ```bash
 dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092
+```
+
+Checks: backend health, login, auth `/me`, itinerary CRUD, saved CRUD,
+feedback validation, scenic search, web shell reachable.
+
+### Manual Release Build with AMap Keys
+
+```bash
+flutter build web --release --pwa-strategy=none \
+  --dart-define=AMAP_JS_KEY=your_web_js_key \
+  --dart-define=AMAP_JS_SECURITY_CODE=your_security_code
+```
+
+(PowerShell: use backtick `` ` `` instead of `\` for line continuation, or
+put it on one line.)
+
+Then copy the self-destruct service worker and serve:
+
+```bash
+cp web/flutter_service_worker.js build/web/flutter_service_worker.js   # macOS/Linux
+python3 -m http.server 8092 --bind 127.0.0.1 --directory build/web
+```
+
+```powershell
+Copy-Item web\flutter_service_worker.js build\web\flutter_service_worker.js   # Windows
+python -m http.server 8092 --bind 127.0.0.1 --directory build/web
 ```
 
 Full handoff checklist: [`docs/local_demo_runbook.md`](docs/local_demo_runbook.md).

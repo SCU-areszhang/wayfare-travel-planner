@@ -5926,8 +5926,20 @@ class _ExploreScreenState extends State<_ExploreScreen> {
     }
   }
 
+  // Scheduled markers carry their day's date as the category; resolve that
+  // back to a day index so the marker color matches that day's route color.
+  int? _dayIndexForCategory(String category) {
+    final byDate = widget.itineraryDays.indexWhere(
+      (day) => day.date == category,
+    );
+    if (byDate >= 0) {
+      return byDate;
+    }
+    return _dayIndexFromCategory(category);
+  }
+
   Color _markerColor(String category) {
-    final dayIndex = _dayIndexFromCategory(category);
+    final dayIndex = _dayIndexForCategory(category);
     if (dayIndex != null) {
       return _dayColor(dayIndex);
     }
@@ -5946,7 +5958,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   }
 
   double _markerHue(String category) {
-    final dayIndex = _dayIndexFromCategory(category);
+    final dayIndex = _dayIndexForCategory(category);
     if (dayIndex != null) {
       return _dayHue(dayIndex);
     }

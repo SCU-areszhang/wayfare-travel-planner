@@ -57,6 +57,16 @@ class AppUser {
     final source = displayName.trim().isEmpty ? identifier : displayName;
     return source.characters.take(1).toString().toUpperCase();
   }
+
+  AppUser copyWith({String? displayName}) {
+    return AppUser(
+      id: id,
+      identifier: identifier,
+      displayName: displayName ?? this.displayName,
+      sessionToken: sessionToken,
+      sessionExpiresAt: sessionExpiresAt,
+    );
+  }
 }
 
 class LocalAuthRepository {
@@ -460,6 +470,11 @@ abstract interface class WayfareBackend {
   void setSessionToken(String? token);
   Future<BackendLoginResult> loginOrRegister(String identifier, String password);
   Future<void> logout();
+  Future<String> updateDisplayName(String displayName);
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  });
   Future<TravelDataRepository> loadTravelData(
     String userId, {
     String? activeItineraryId,
@@ -563,6 +578,23 @@ class WayfareApiClient implements WayfareBackend {
   Future<void> logout() async {
     await _post('/auth/logout', <String, Object?>{});
     setSessionToken(null);
+  }
+
+  @override
+  Future<String> updateDisplayName(String displayName) async {
+    final body = await _patch('/me', {'displayName': displayName});
+    return _asMap(body['user'])['display_name']?.toString() ?? displayName;
+  }
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _post('/me/password', {
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    });
   }
 
   @override
@@ -1319,6 +1351,14 @@ class _WayfareAppState extends State<WayfareApp> {
     return result.registered;
   }
 
+  Future<void> _handleUserUpdated(AppUser user) async {
+    await _authRepository.saveSession(user);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _user = user);
+  }
+
   Future<void> _logout() async {
     try {
       await widget.backend.logout();
@@ -1369,6 +1409,7 @@ class _WayfareAppState extends State<WayfareApp> {
                   themeSource: _themeSource,
                   onThemeChanged: (source) =>
                       setState(() => _themeSource = source),
+                  onUserUpdated: _handleUserUpdated,
                   onLogout: _logout,
                 ),
         );
@@ -1818,6 +1859,7 @@ class TravelPlannerShell extends StatefulWidget {
     required this.user,
     required this.themeSource,
     required this.onThemeChanged,
+    required this.onUserUpdated,
     required this.onLogout,
     super.key,
   });
@@ -1826,6 +1868,7 @@ class TravelPlannerShell extends StatefulWidget {
   final AppUser user;
   final ThemeSource themeSource;
   final ValueChanged<ThemeSource> onThemeChanged;
+  final ValueChanged<AppUser> onUserUpdated;
   final VoidCallback onLogout;
 
   @override
@@ -2157,6 +2200,8 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           user: widget.user,
           themeSource: widget.themeSource,
           onThemeChanged: widget.onThemeChanged,
+          onChangeUsername: _showChangeUsernameSheet,
+          onChangePassword: _showChangePasswordSheet,
           onHelp: _showHelpCenter,
           onFeedback: _showFeedbackSheet,
           onShowInfo: _showInfo,
@@ -3613,6 +3658,212 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         ],
       ),
     );
+  }
+
+  Future<void> _showChangeUsernameSheet() async {
+    final controller = TextEditingController(text: widget.user.displayName);
+    final formKey = GlobalKey<FormState>();
+    var submitting = false;
+    String? error;
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return _SheetPadding(
+              bottomInset: MediaQuery.viewInsetsOf(context).bottom,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Change Username',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: controller,
+                      enabled: !submitting,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Display name',
+                      ),
+                      validator: (value) {
+                        final text = value?.trim() ?? '';
+                        if (text.isEmpty) {
+                          return 'Required';
+                        }
+                        if (text.length > 60) {
+                          return 'At most 60 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                    if (error != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: submitting
+                          ? null
+                          : () async {
+                              if (!(formKey.currentState?.validate() ??
+                                  false)) {
+                                return;
+                              }
+                              setSheetState(() {
+                                submitting = true;
+                                error = null;
+                              });
+                              try {
+                                final name = await widget.backend
+                                    .updateDisplayName(controller.text.trim());
+                                if (context.mounted) {
+                                  Navigator.pop(context, name);
+                                }
+                              } on BackendException catch (e) {
+                                setSheetState(() {
+                                  submitting = false;
+                                  error = e.message;
+                                });
+                              } catch (_) {
+                                setSheetState(() {
+                                  submitting = false;
+                                  error = 'Could not update username.';
+                                });
+                              }
+                            },
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (result != null && mounted) {
+      widget.onUserUpdated(widget.user.copyWith(displayName: result));
+      _toast('Username updated');
+    }
+  }
+
+  Future<void> _showChangePasswordSheet() async {
+    final current = TextEditingController();
+    final next = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    var submitting = false;
+    String? error;
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return _SheetPadding(
+              bottomInset: MediaQuery.viewInsetsOf(context).bottom,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Change Password',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: current,
+                      enabled: !submitting,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Current password',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: next,
+                      enabled: !submitting,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'New password',
+                      ),
+                      validator: (value) {
+                        final text = value ?? '';
+                        if (text.length < 6) {
+                          return 'At least 6 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                    if (error != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: submitting
+                          ? null
+                          : () async {
+                              if (!(formKey.currentState?.validate() ??
+                                  false)) {
+                                return;
+                              }
+                              setSheetState(() {
+                                submitting = true;
+                                error = null;
+                              });
+                              try {
+                                await widget.backend.changePassword(
+                                  currentPassword: current.text,
+                                  newPassword: next.text,
+                                );
+                                if (context.mounted) {
+                                  Navigator.pop(context, true);
+                                }
+                              } on BackendException catch (e) {
+                                setSheetState(() {
+                                  submitting = false;
+                                  error = e.message;
+                                });
+                              } catch (_) {
+                                setSheetState(() {
+                                  submitting = false;
+                                  error = 'Could not change password.';
+                                });
+                              }
+                            },
+                      child: const Text('Update password'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (changed == true && mounted) {
+      _toast('Password updated');
+    }
   }
 
   void _showFeedbackSheet() {
@@ -6963,6 +7214,8 @@ class _ProfileScreen extends StatefulWidget {
     required this.user,
     required this.themeSource,
     required this.onThemeChanged,
+    required this.onChangeUsername,
+    required this.onChangePassword,
     required this.onHelp,
     required this.onFeedback,
     required this.onShowInfo,
@@ -6973,6 +7226,8 @@ class _ProfileScreen extends StatefulWidget {
   final AppUser user;
   final ThemeSource themeSource;
   final ValueChanged<ThemeSource> onThemeChanged;
+  final VoidCallback onChangeUsername;
+  final VoidCallback onChangePassword;
   final VoidCallback onHelp;
   final VoidCallback onFeedback;
   final void Function(String title, String message) onShowInfo;
@@ -7065,6 +7320,22 @@ class _ProfileScreenState extends State<_ProfileScreen> {
         Card.outlined(
           child: Column(
             children: [
+              ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: const Text('Username'),
+                subtitle: Text(widget.user.displayName),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: widget.onChangeUsername,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.lock_outline),
+                title: const Text('Password'),
+                subtitle: const Text('Change your sign-in password'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: widget.onChangePassword,
+              ),
+              const Divider(height: 1),
               _AppearanceControl(
                 themeSource: widget.themeSource,
                 onThemeChanged: widget.onThemeChanged,

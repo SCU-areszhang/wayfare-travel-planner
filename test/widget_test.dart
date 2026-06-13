@@ -481,6 +481,15 @@ class _FakeBackend implements WayfareBackend {
   Future<void> logout() async {}
 
   @override
+  Future<String> updateDisplayName(String displayName) async => displayName;
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {}
+
+  @override
   Future<TravelDataRepository> loadTravelData(
     String userId, {
     String? activeItineraryId,

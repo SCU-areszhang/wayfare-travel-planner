@@ -6742,8 +6742,9 @@ class _SavedWorkspaceSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final divider = scheme.onPrimaryContainer.withValues(alpha: 0.24);
     return Card.filled(
-      color: scheme.surfaceContainerLow,
+      color: scheme.primaryContainer,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 16),
         child: IntrinsicHeight(
@@ -6754,23 +6755,13 @@ class _SavedWorkspaceSummary extends StatelessWidget {
                 value: '$total',
                 label: 'Saved',
               ),
-              VerticalDivider(
-                width: 1,
-                indent: 6,
-                endIndent: 6,
-                color: scheme.outlineVariant,
-              ),
+              VerticalDivider(width: 1, indent: 6, endIndent: 6, color: divider),
               _SavedMetric(
                 icon: Icons.route_outlined,
                 value: '$itineraries',
                 label: 'Plans',
               ),
-              VerticalDivider(
-                width: 1,
-                indent: 6,
-                endIndent: 6,
-                color: scheme.outlineVariant,
-              ),
+              VerticalDivider(width: 1, indent: 6, endIndent: 6, color: divider),
               _SavedMetric(
                 icon: Icons.folder_outlined,
                 value: '$folders',
@@ -6806,25 +6797,26 @@ class _SavedMetric extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: scheme.secondaryContainer,
+              color: scheme.primary,
               borderRadius: BorderRadius.circular(17),
             ),
-            child: Icon(icon, size: 18, color: scheme.onSecondaryContainer),
+            child: Icon(icon, size: 18, color: scheme.onPrimary),
           ),
           const SizedBox(height: 8),
           Text(
             value,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.onPrimaryContainer,
+            ),
           ),
           Text(
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.onPrimaryContainer.withValues(alpha: 0.8),
+            ),
           ),
         ],
       ),

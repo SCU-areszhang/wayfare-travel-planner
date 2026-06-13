@@ -304,7 +304,7 @@ void main() {
     expect(find.widgetWithText(Chip, 'Saved'), findsNothing);
     expect(find.text('Test Trip'), findsOneWidget);
     expect(find.byTooltip('Move to date'), findsOneWidget);
-    expect(find.byTooltip('Drag to move within this date'), findsOneWidget);
+    expect(find.byTooltip('Drag to move within this date'), findsNothing);
 
     await tester.tap(find.byTooltip('Move to date'));
     await tester.pumpAndSettle();

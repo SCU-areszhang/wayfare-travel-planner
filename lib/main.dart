@@ -2076,7 +2076,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           onEdit: (item) => _showEditItemSheet(item: item),
           onMove: _showMoveItemSheet,
           onDelete: _confirmDelete,
-          onReorder: _reorderItem,
           onDuplicate: _duplicateItem,
           onOpenMap: () => setState(() => _tab = AppTab.explore),
         ),
@@ -2658,49 +2657,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         );
       },
     );
-  }
-
-  Future<void> _reorderItem(
-    ItineraryDay day,
-    int oldIndex,
-    int newIndex,
-  ) async {
-    final itineraryId = _repository.activeItineraryId;
-    if (itineraryId == null) {
-      _toast('Create or load a backend itinerary first.');
-      return;
-    }
-    final before = List<ItineraryItem>.from(day.items);
-    setState(() {
-      final item = day.items.removeAt(oldIndex);
-      day.items.insert(newIndex, item);
-      _sortRepositoryDays(_repository);
-    });
-    final reordered = await _runBackendMutation(
-      () => widget.backend.reorderItems(
-        itineraryId,
-        day.id,
-        day.items.map((item) => item.id).toList(),
-      ),
-    );
-    if (!mounted) {
-      return;
-    }
-    if (reordered == null) {
-      setState(() {
-        day.items
-          ..clear()
-          ..addAll(before);
-        _sortRepositoryDays(_repository);
-      });
-      return;
-    }
-    setState(() {
-      day.items
-        ..clear()
-        ..addAll(reordered);
-      _sortRepositoryDays(_repository);
-    });
   }
 
   Future<void> _showMoveItemSheet(ItineraryItem item) async {
@@ -6159,7 +6115,6 @@ class _ItineraryScreen extends StatelessWidget {
     required this.onEdit,
     required this.onMove,
     required this.onDelete,
-    required this.onReorder,
     required this.onDuplicate,
     required this.onOpenMap,
   });
@@ -6172,7 +6127,6 @@ class _ItineraryScreen extends StatelessWidget {
   final ValueChanged<ItineraryItem> onEdit;
   final ValueChanged<ItineraryItem> onMove;
   final ValueChanged<ItineraryItem> onDelete;
-  final void Function(ItineraryDay day, int oldIndex, int newIndex) onReorder;
   final void Function(ItineraryDay day, ItineraryItem item) onDuplicate;
   final VoidCallback onOpenMap;
 
@@ -6282,7 +6236,6 @@ class _ItineraryScreen extends StatelessWidget {
             onEdit: onEdit,
             onMove: onMove,
             onDelete: onDelete,
-            onReorder: onReorder,
             onDuplicate: onDuplicate,
             onOpenMap: onOpenMap,
           ),
@@ -6300,7 +6253,6 @@ class _ItineraryDayRouteCard extends StatelessWidget {
     required this.onEdit,
     required this.onMove,
     required this.onDelete,
-    required this.onReorder,
     required this.onDuplicate,
     required this.onOpenMap,
   });
@@ -6310,7 +6262,6 @@ class _ItineraryDayRouteCard extends StatelessWidget {
   final ValueChanged<ItineraryItem> onEdit;
   final ValueChanged<ItineraryItem> onMove;
   final ValueChanged<ItineraryItem> onDelete;
-  final void Function(ItineraryDay day, int oldIndex, int newIndex) onReorder;
   final void Function(ItineraryDay day, ItineraryItem item) onDuplicate;
   final VoidCallback onOpenMap;
 
@@ -6391,40 +6342,27 @@ class _ItineraryDayRouteCard extends StatelessWidget {
             if (day.items.isEmpty)
               _ItineraryEmptyStopPreview(onOpenMap: onOpenMap)
             else
-              ReorderableListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                buildDefaultDragHandles: false,
-                itemCount: day.items.length,
-                // onReorderItem only exists on Flutter >=3.42, and this project
-                // must still build on 3.41 stable. Stay on the deprecated
-                // onReorder, which reports newIndex before the dragged item is
-                // removed and therefore needs the classic adjustment.
-                // ignore: deprecated_member_use
-                onReorder: (oldIndex, newIndex) {
-                  if (newIndex > oldIndex) {
-                    newIndex -= 1;
-                  }
-                  onReorder(day, oldIndex, newIndex);
-                },
-                itemBuilder: (context, index) {
-                  final item = day.items[index];
-                  return Padding(
-                    key: ValueKey(item.id),
-                    padding: EdgeInsets.only(
-                      bottom: index == day.items.length - 1 ? 0 : 8,
+              // Stops are ordered by time, so they are listed (not reorderable)
+              // top to bottom.
+              Column(
+                children: [
+                  for (var index = 0; index < day.items.length; index++)
+                    Padding(
+                      key: ValueKey(day.items[index].id),
+                      padding: EdgeInsets.only(
+                        bottom: index == day.items.length - 1 ? 0 : 8,
+                      ),
+                      child: _ItineraryItemCard(
+                        item: day.items[index],
+                        index: index,
+                        onEdit: () => onEdit(day.items[index]),
+                        onMove: () => onMove(day.items[index]),
+                        onDelete: () => onDelete(day.items[index]),
+                        onDuplicate: () => onDuplicate(day, day.items[index]),
+                        onOpenMap: onOpenMap,
+                      ),
                     ),
-                    child: _ItineraryItemCard(
-                      item: item,
-                      reorderIndex: index,
-                      onEdit: () => onEdit(item),
-                      onMove: () => onMove(item),
-                      onDelete: () => onDelete(item),
-                      onDuplicate: () => onDuplicate(day, item),
-                      onOpenMap: onOpenMap,
-                    ),
-                  );
-                },
+                ],
               ),
           ],
         ),
@@ -6476,7 +6414,7 @@ class _ItineraryEmptyStopPreview extends StatelessWidget {
 class _ItineraryItemCard extends StatelessWidget {
   const _ItineraryItemCard({
     required this.item,
-    required this.reorderIndex,
+    required this.index,
     required this.onEdit,
     required this.onMove,
     required this.onDelete,
@@ -6485,7 +6423,7 @@ class _ItineraryItemCard extends StatelessWidget {
   });
 
   final ItineraryItem item;
-  final int reorderIndex;
+  final int index;
   final VoidCallback onEdit;
   final VoidCallback onMove;
   final VoidCallback onDelete;
@@ -6507,7 +6445,7 @@ class _ItineraryItemCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-            '${reorderIndex + 1}',
+            '${index + 1}',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSecondaryContainer,
               fontWeight: FontWeight.w800,
@@ -6581,19 +6519,6 @@ class _ItineraryItemCard extends StatelessWidget {
                     onPressed: onOpenMap,
                     icon: const Icon(Icons.map_outlined),
                     visualDensity: VisualDensity.compact,
-                  ),
-                  Tooltip(
-                    message: 'Drag to move within this date',
-                    child: ReorderableDragStartListener(
-                      index: reorderIndex,
-                      child: SizedBox.square(
-                        dimension: 40,
-                        child: Icon(
-                          Icons.drag_indicator,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
                   ),
                 ],
               ),

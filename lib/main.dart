@@ -5545,29 +5545,13 @@ class _ExploreScreenState extends State<_ExploreScreen> {
           ),
         ),
         const SizedBox(height: 10),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              for (final category in categories) ...[
-                FilterChip(
-                  label: Text(category),
-                  selected: _selectedCategories.contains(category),
-                  onSelected: (selected) {
-                    setState(() {
-                      selected
-                          ? _selectedCategories.add(category)
-                          : _selectedCategories.remove(category);
-                    });
-                  },
-                  visualDensity: VisualDensity.comfortable,
-                  labelPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                ),
-                const SizedBox(width: 8),
-              ],
-              FilterChip(
+        Row(
+          children: [
+            // Pick point mode stays pinned at the front; the day/category
+            // chips scroll independently after it.
+            Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: FilterChip(
                 avatar: const Icon(Icons.add_location_alt_outlined, size: 18),
                 label: const Text('Pick point mode'),
                 selected: _pickMode,
@@ -5575,8 +5559,37 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                   setState(() => _pickMode = selected);
                 },
               ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(right: 16),
+                child: Row(
+                  children: [
+                    for (final category in categories) ...[
+                      FilterChip(
+                        label: Text(category),
+                        selected: _selectedCategories.contains(category),
+                        onSelected: (selected) {
+                          setState(() {
+                            selected
+                                ? _selectedCategories.add(category)
+                                : _selectedCategories.remove(category);
+                          });
+                        },
+                        visualDensity: VisualDensity.comfortable,
+                        labelPadding:
+                            const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
         Expanded(
           child: Padding(

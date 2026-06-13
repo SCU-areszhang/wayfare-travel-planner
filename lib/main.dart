@@ -1860,18 +1860,22 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
               Padding(
                 padding: const EdgeInsets.only(left: 4, right: 16),
                 child: Tooltip(
-                  message: widget.user.identifier,
-                  child: CircleAvatar(
-                    radius: 17,
-                    backgroundColor: Theme.of(
-                      context,
-                    ).colorScheme.primaryContainer,
-                    foregroundColor: Theme.of(
-                      context,
-                    ).colorScheme.onPrimaryContainer,
-                    child: Text(
-                      widget.user.initials,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                  message: 'Open profile · ${widget.user.identifier}',
+                  child: InkResponse(
+                    radius: 24,
+                    onTap: () => setState(() => _tab = AppTab.profile),
+                    child: CircleAvatar(
+                      radius: 17,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer,
+                      foregroundColor: Theme.of(
+                        context,
+                      ).colorScheme.onPrimaryContainer,
+                      child: Text(
+                        widget.user.initials,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
                     ),
                   ),
                 ),
@@ -1885,7 +1889,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                   _AdaptiveNavigationRail(
                     selectedTab: _tab,
                     onSelected: (tab) => setState(() => _tab = tab),
-                    user: widget.user,
                   ),
                   const VerticalDivider(thickness: 1, width: 1),
                 ],
@@ -3961,54 +3964,25 @@ class _AppHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [scheme.primary, scheme.tertiary],
-            ),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: scheme.primary.withValues(alpha: 0.25),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
+        Text(
+          'Wayfare',
+          maxLines: 1,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: scheme.primary,
+            fontWeight: FontWeight.w600,
           ),
-          child: Icon(Icons.travel_explore, color: scheme.onPrimary, size: 21),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'WAYFARE',
-                maxLines: 1,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: scheme.primary,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 2.8,
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  height: 1.1,
-                ),
-              ),
-            ],
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -5076,12 +5050,10 @@ class _AdaptiveNavigationRail extends StatelessWidget {
   const _AdaptiveNavigationRail({
     required this.selectedTab,
     required this.onSelected,
-    required this.user,
   });
 
   final AppTab selectedTab;
   final ValueChanged<AppTab> onSelected;
-  final AppUser user;
 
   @override
   Widget build(BuildContext context) {
@@ -5093,12 +5065,21 @@ class _AdaptiveNavigationRail extends StatelessWidget {
       minWidth: 92,
       leading: Padding(
         padding: const EdgeInsets.only(top: 16, bottom: 18),
-        child: Badge(
-          label: const Text('Live'),
-          child: CircleAvatar(
-            backgroundColor: scheme.primaryContainer,
-            foregroundColor: scheme.onPrimaryContainer,
-            child: Text(user.initials),
+        child: Container(
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'W',
+            style: TextStyle(
+              color: scheme.onPrimaryContainer,
+              fontWeight: FontWeight.w800,
+              fontSize: 20,
+            ),
           ),
         ),
       ),

@@ -130,7 +130,22 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       if (identifierError != null) {
         return _badRequest(request, identifierError);
       }
-      final result = store.loginOrRegister(identifier!);
+      final password = body['password']?.toString() ?? '';
+      final passwordError = _passwordValidationError(password);
+      if (passwordError != null) {
+        return _badRequest(request, passwordError);
+      }
+      final result = store.loginOrRegister(identifier!, password);
+      if (result == null) {
+        return _json(
+          request,
+          {
+            'error': 'invalid_credentials',
+            'message': 'Incorrect password for this account.',
+          },
+          status: HttpStatus.unauthorized,
+        );
+      }
       final user = result['user'] as Map<String, Object?>;
       final session = _issueSession(store, user['id'].toString());
       return _json(request, {
@@ -169,6 +184,47 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
         return _notFound(request, 'User not found');
       }
       return _json(request, {'user': user});
+    }
+
+    if (method == 'PATCH' && _matches(path, ['me'])) {
+      final session = _requireSession(request, store);
+      final body = await _body(request);
+      final displayName = body['displayName']?.toString().trim() ?? '';
+      if (displayName.isEmpty || displayName.length > 60) {
+        return _badRequest(request, 'Display name must be 1-60 characters.');
+      }
+      final user = store.updateDisplayName(session.userId, displayName);
+      if (user == null) {
+        return _notFound(request, 'User not found');
+      }
+      return _json(request, {'user': user});
+    }
+
+    if (method == 'POST' && _matches(path, ['me', 'password'])) {
+      final session = _requireSession(request, store);
+      final body = await _body(request);
+      final currentPassword = body['currentPassword']?.toString() ?? '';
+      final newPassword = body['newPassword']?.toString() ?? '';
+      final passwordError = _passwordValidationError(newPassword);
+      if (passwordError != null) {
+        return _badRequest(request, passwordError);
+      }
+      final updated = store.changePassword(
+        session.userId,
+        currentPassword,
+        newPassword,
+      );
+      if (!updated) {
+        return _json(
+          request,
+          {
+            'error': 'invalid_credentials',
+            'message': 'Current password is incorrect.',
+          },
+          status: HttpStatus.unauthorized,
+        );
+      }
+      return _json(request, {'updated': true});
     }
 
     if (method == 'GET' && _matches(path, ['destinations'])) {
@@ -773,6 +829,8 @@ class SqliteStore {
       )
     ''');
     _ensureColumn('saved_trips', 'label', "TEXT NOT NULL DEFAULT 'Saved item'");
+    _ensureColumn('users', 'password_hash', "TEXT NOT NULL DEFAULT ''");
+    _ensureColumn('users', 'password_salt', "TEXT NOT NULL DEFAULT ''");
     _recordSchemaMigration();
   }
 
@@ -783,8 +841,11 @@ class SqliteStore {
     if (_count('users') == 0) {
       final now = DateTime.now().toIso8601String();
       _db.execute(
-        'INSERT INTO users VALUES (?, ?, ?, ?, ?)',
-        ['user-dev-1', 'demo@wayfare.local', 'Demo Traveler', now, now],
+        'INSERT INTO users '
+        '(id, identifier, display_name, password_hash, password_salt, '
+        'created_at, last_login_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['user-dev-1', 'demo@wayfare.local', 'Demo Traveler', '', '', now, now],
       );
     }
     if (_count('destinations') == 0) {
@@ -940,39 +1001,66 @@ class SqliteStore {
         .toList(growable: false);
   }
 
-  Map<String, Object?> loginOrRegister(String identifier) {
+  // Returns null when an existing account's password does not match. New
+  // identifiers register with the supplied password; existing accounts without
+  // a password yet adopt the one supplied on this login.
+  Map<String, Object?>? loginOrRegister(String identifier, String password) {
     final existing = _db.select(
       'SELECT * FROM users WHERE identifier = ?',
       [identifier],
     );
     final now = DateTime.now().toIso8601String();
     if (existing.isNotEmpty) {
-      final user = _row(existing.first);
-      _db.execute('UPDATE users SET last_login_at = ? WHERE id = ?', [
-        now,
-        user['id'],
-      ]);
-      return {'registered': false, 'user': user};
+      final row = existing.first;
+      final storedHash = (row['password_hash'] as String?) ?? '';
+      final storedSalt = (row['password_salt'] as String?) ?? '';
+      if (storedHash.isEmpty) {
+        final salt = _generateSalt();
+        _db.execute(
+          'UPDATE users SET password_hash = ?, password_salt = ?, '
+          'last_login_at = ? WHERE id = ?',
+          [_hashPassword(password, salt), salt, now, row['id']],
+        );
+      } else if (_hashPassword(password, storedSalt) != storedHash) {
+        return null;
+      } else {
+        _db.execute('UPDATE users SET last_login_at = ? WHERE id = ?', [
+          now,
+          row['id'],
+        ]);
+      }
+      return {
+        'registered': false,
+        'user': {
+          'id': row['id'],
+          'identifier': row['identifier'],
+          'display_name': row['display_name'],
+          'created_at': row['created_at'],
+          'last_login_at': now,
+        },
+      };
     }
 
-    final user = {
-      'id': _id('user'),
-      'identifier': identifier,
-      'display_name': _displayName(identifier),
-      'created_at': now,
-      'last_login_at': now,
-    };
+    final id = _id('user');
+    final displayName = _displayName(identifier);
+    final salt = _generateSalt();
     _db.execute(
-      'INSERT INTO users VALUES (?, ?, ?, ?, ?)',
-      [
-        user['id'],
-        user['identifier'],
-        user['display_name'],
-        user['created_at'],
-        user['last_login_at'],
-      ],
+      'INSERT INTO users '
+      '(id, identifier, display_name, password_hash, password_salt, '
+      'created_at, last_login_at) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, identifier, displayName, _hashPassword(password, salt), salt, now, now],
     );
-    return {'registered': true, 'user': user};
+    return {
+      'registered': true,
+      'user': {
+        'id': id,
+        'identifier': identifier,
+        'display_name': displayName,
+        'created_at': now,
+        'last_login_at': now,
+      },
+    };
   }
 
   Map<String, Object?> createSession({
@@ -1027,9 +1115,46 @@ class SqliteStore {
   }
 
   Map<String, Object?>? userById(String id) => _first(
-        'SELECT * FROM users WHERE id = ?',
+        'SELECT id, identifier, display_name, created_at, last_login_at '
+        'FROM users WHERE id = ?',
         [id],
       );
+
+  Map<String, Object?>? updateDisplayName(String userId, String displayName) {
+    final rows = _db.select('SELECT id FROM users WHERE id = ?', [userId]);
+    if (rows.isEmpty) {
+      return null;
+    }
+    _db.execute('UPDATE users SET display_name = ? WHERE id = ?', [
+      displayName,
+      userId,
+    ]);
+    return userById(userId);
+  }
+
+  // Returns false when the user is missing or the current password does not
+  // match. A user with no password yet may set one without a current password.
+  bool changePassword(String userId, String currentPassword, String newPassword) {
+    final rows = _db.select(
+      'SELECT password_hash, password_salt FROM users WHERE id = ?',
+      [userId],
+    );
+    if (rows.isEmpty) {
+      return false;
+    }
+    final storedHash = (rows.first['password_hash'] as String?) ?? '';
+    final storedSalt = (rows.first['password_salt'] as String?) ?? '';
+    if (storedHash.isNotEmpty &&
+        _hashPassword(currentPassword, storedSalt) != storedHash) {
+      return false;
+    }
+    final salt = _generateSalt();
+    _db.execute(
+      'UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?',
+      [_hashPassword(newPassword, salt), salt, userId],
+    );
+    return true;
+  }
 
   List<Map<String, Object?>> destinations({bool priorityOnly = false}) {
     final rows = _db.select(
@@ -2967,11 +3092,11 @@ String _id(String prefix) {
 
 const _maxBodyBytes = 64 * 1024;
 const _localDevelopmentSecret = 'wayfare-local-development-secret-change-me';
-const _schemaVersion = 1;
-const _schemaMigrationName = 'core_schema_20260608';
+const _schemaVersion = 2;
+const _schemaMigrationName = 'user_password_20260613';
 const _schemaSignature = '''
 schema_migrations(version,name,checksum,applied_at);
-users(id,identifier,display_name,created_at,last_login_at);
+users(id,identifier,display_name,password_hash,password_salt,created_at,last_login_at);
 sessions(token_hash,user_id,created_at,expires_at,revoked_at);
 destinations(id,name,city,theme,summary,duration,tags_json,priority,lat,lng);
 map_places(id,name,category,description,rating,lat,lng);
@@ -2983,6 +3108,25 @@ feedback(id,user_id,category,description,status,created_at);
 
 String _schemaChecksum() {
   return sha256.convert(utf8.encode(_schemaSignature)).toString();
+}
+
+String _generateSalt() => _randomUrlSafe(16);
+
+String _hashPassword(String password, String salt) {
+  return sha256.convert(utf8.encode('$salt::$password')).toString();
+}
+
+String? _passwordValidationError(String password) {
+  if (password.isEmpty) {
+    return 'Password is required.';
+  }
+  if (password.length < 6) {
+    return 'Password must be at least 6 characters.';
+  }
+  if (password.length > 128) {
+    return 'Password must be at most 128 characters.';
+  }
+  return null;
 }
 
 int _environmentInt(

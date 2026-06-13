@@ -397,6 +397,7 @@ Future<void> _pumpLoggedInApp(WidgetTester tester, _FakeBackend backend) async {
 
 Future<void> _login(WidgetTester tester) async {
   await tester.enterText(find.byType(EditableText).first, 'demo@wayfare.local');
+  await tester.enterText(find.byType(EditableText).at(1), 'demo-password');
   await tester.tap(find.text('Continue'));
   await tester.pumpAndSettle();
 }
@@ -457,7 +458,10 @@ class _FakeBackend implements WayfareBackend {
   void setSessionToken(String? token) {}
 
   @override
-  Future<BackendLoginResult> loginOrRegister(String identifier) async {
+  Future<BackendLoginResult> loginOrRegister(
+    String identifier,
+    String password,
+  ) async {
     final expiresAt = DateTime.now().toUtc().add(const Duration(days: 7));
     return BackendLoginResult(
       registered: true,

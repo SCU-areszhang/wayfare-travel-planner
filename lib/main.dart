@@ -458,7 +458,7 @@ class BackendLoginResult {
 
 abstract interface class WayfareBackend {
   void setSessionToken(String? token);
-  Future<BackendLoginResult> loginOrRegister(String identifier);
+  Future<BackendLoginResult> loginOrRegister(String identifier, String password);
   Future<void> logout();
   Future<TravelDataRepository> loadTravelData(
     String userId, {
@@ -533,8 +533,14 @@ class WayfareApiClient implements WayfareBackend {
   }
 
   @override
-  Future<BackendLoginResult> loginOrRegister(String identifier) async {
-    final body = await _post('/auth/login', {'identifier': identifier});
+  Future<BackendLoginResult> loginOrRegister(
+    String identifier,
+    String password,
+  ) async {
+    final body = await _post('/auth/login', {
+      'identifier': identifier,
+      'password': password,
+    });
     final sessionToken = body['token']?.toString() ?? '';
     final sessionExpiresAt =
         DateTime.tryParse(body['expiresAt']?.toString() ?? '') ??
@@ -1302,8 +1308,8 @@ class _WayfareAppState extends State<WayfareApp> {
     widget.backend.setSessionToken(user?.sessionToken);
   }
 
-  Future<bool> _login(String identifier) async {
-    final result = await widget.backend.loginOrRegister(identifier);
+  Future<bool> _login(String identifier, String password) async {
+    final result = await widget.backend.loginOrRegister(identifier, password);
     widget.backend.setSessionToken(result.sessionToken);
     await _authRepository.saveSession(result.user);
     if (!mounted) {
@@ -1553,7 +1559,7 @@ class _AuthLoadingScreen extends StatelessWidget {
 class _LoginScreen extends StatefulWidget {
   const _LoginScreen({required this.onLogin});
 
-  final Future<bool> Function(String identifier) onLogin;
+  final Future<bool> Function(String identifier, String password) onLogin;
 
   @override
   State<_LoginScreen> createState() => _LoginScreenState();
@@ -1561,14 +1567,18 @@ class _LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<_LoginScreen> {
   final _identifier = TextEditingController();
+  final _password = TextEditingController();
   String? _identifierError;
+  String? _passwordError;
   var _loginType = 'phone';
   var _remember = true;
+  var _obscurePassword = true;
   var _submitting = false;
 
   @override
   void dispose() {
     _identifier.dispose();
+    _password.dispose();
     super.dispose();
   }
 
@@ -1637,6 +1647,34 @@ class _LoginScreenState extends State<_LoginScreen> {
                     }
                   },
                 ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _password,
+                  enabled: !_submitting,
+                  obscureText: _obscurePassword,
+                  onChanged: (_) {
+                    if (_passwordError != null) {
+                      setState(() => _passwordError = null);
+                    }
+                  },
+                  onSubmitted: (_) => _submitting ? null : _submit(),
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    helperText: 'New accounts set this password on first sign in',
+                    errorText: _passwordError,
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      tooltip: _obscurePassword ? 'Show' : 'Hide',
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 8),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1675,13 +1713,17 @@ class _LoginScreenState extends State<_LoginScreen> {
 
   Future<void> _submit() async {
     final validationError = _validateIdentifier(_identifier.text);
-    if (validationError != null) {
-      setState(() => _identifierError = validationError);
+    final passwordError = _validatePassword(_password.text);
+    if (validationError != null || passwordError != null) {
+      setState(() {
+        _identifierError = validationError;
+        _passwordError = passwordError;
+      });
       return;
     }
     setState(() => _submitting = true);
     try {
-      final registered = await widget.onLogin(_identifier.text);
+      final registered = await widget.onLogin(_identifier.text, _password.text);
       if (!mounted) {
         return;
       }
@@ -1736,6 +1778,16 @@ class _LoginScreenState extends State<_LoginScreen> {
     }
     if (_loginType == 'phone' && text.length < 6) {
       return 'Enter a valid phone number.';
+    }
+    return null;
+  }
+
+  String? _validatePassword(String value) {
+    if (value.isEmpty) {
+      return 'Required';
+    }
+    if (value.length < 6) {
+      return 'At least 6 characters.';
     }
     return null;
   }

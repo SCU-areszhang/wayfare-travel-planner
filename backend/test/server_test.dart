@@ -39,7 +39,7 @@ void main() {
   test('health and ops schema expose current migration state', () async {
     final health = await server.get('/health');
     expect(health.statusCode, HttpStatus.ok);
-    expect(health.json['schemaVersion'], 1);
+    expect(health.json['schemaVersion'], 2);
 
     final unauthenticated = await server.get('/ops/schema');
     expect(unauthenticated.statusCode, HttpStatus.unauthorized);
@@ -49,12 +49,12 @@ void main() {
       token: 'test-ops-token-for-metrics',
     );
     expect(schema.statusCode, HttpStatus.ok);
-    expect(schema.json['schemaVersion'], 1);
+    expect(schema.json['schemaVersion'], 2);
     final migrations = schema.json['migrations'] as List<Object?>;
     expect(migrations, hasLength(1));
     final migration = migrations.single as Map<String, Object?>;
-    expect(migration['version'], 1);
-    expect(migration['name'], 'core_schema_20260608');
+    expect(migration['version'], 2);
+    expect(migration['name'], 'user_password_20260613');
     expect(migration['checksum']?.toString(), hasLength(64));
     expect(migration['applied_at'], isA<String>());
   });
@@ -444,6 +444,7 @@ class _ServerHarness {
   Future<String> login() async {
     final response = await post('/auth/login', {
       'identifier': 'demo@wayfare.local',
+      'password': 'demo-password',
     });
     expect(response.statusCode, HttpStatus.ok);
     return response.json['token'] as String;

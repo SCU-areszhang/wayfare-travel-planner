@@ -17,7 +17,7 @@ void main() {
     await _login(tester);
 
     expect(find.text('Test Trip'), findsOneWidget);
-    expect(find.text('Find Places'), findsOneWidget);
+    expect(find.text('Recommend for You'), findsOneWidget);
     expect(find.text('Featured 5A Scenic Spots'), findsOneWidget);
     expect(find.text('Plan'), findsOneWidget);
   });
@@ -70,9 +70,15 @@ void main() {
     );
     await _pumpLoggedInApp(tester, backend);
 
+    // Hot Citywalks is collapsed by default; expand it before interacting.
+    await tester.tap(find.text('Hot Citywalks'));
+    await tester.pumpAndSettle();
+
     final copyButton = find.byKey(
       const ValueKey('copy-citywalk-citywalk-chengdu-kuanzhai'),
     );
+    await tester.ensureVisible(copyButton.first);
+    await tester.pumpAndSettle();
     await tester.tap(copyButton.first);
     await tester.pumpAndSettle();
 
@@ -156,6 +162,10 @@ void main() {
     );
     await _pumpLoggedInApp(tester, backend);
 
+    // Featured 5A is collapsed by default; expand it before interacting.
+    await tester.tap(find.text('Featured 5A Scenic Spots'));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byKey(const ValueKey('featured-scenic-add-黄山风景区')));
     await tester.pumpAndSettle();
 
@@ -180,6 +190,10 @@ void main() {
       ],
     );
     await _pumpLoggedInApp(tester, backend);
+
+    // Featured 5A is collapsed by default; expand it before interacting.
+    await tester.tap(find.text('Featured 5A Scenic Spots'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('scenic-tag-街巷')));
     await tester.pumpAndSettle();

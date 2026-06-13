@@ -4160,10 +4160,70 @@ class _HomeScreenState extends State<_HomeScreen> {
   String? _searchError;
   String _selectedScenicTag = featuredScenicTags.first;
 
+  List<TravelSearchResult> _nearbySpots = [];
+  var _nearbyLoading = false;
+  String? _nearbyCity;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNearbySpots();
+  }
+
+  @override
+  void didUpdateWidget(_HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_desiredNearbyCity() != _nearbyCity) {
+      _loadNearbySpots();
+    }
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  // City of the user's nearest upcoming itinerary item, or null when there is
+  // no upcoming plan to anchor recommendations to.
+  String? _desiredNearbyCity() {
+    final next = _nextUpcomingPlanItem(widget.repository.itineraryDays);
+    final city = next?.day.city.trim() ?? '';
+    return city.isEmpty ? null : city;
+  }
+
+  // Silently search AMap for scenic spots near the next trip's city.
+  Future<void> _loadNearbySpots() async {
+    final city = _desiredNearbyCity();
+    _nearbyCity = city;
+    if (city == null) {
+      if (mounted) {
+        setState(() {
+          _nearbySpots = [];
+          _nearbyLoading = false;
+        });
+      }
+      return;
+    }
+    setState(() => _nearbyLoading = true);
+    try {
+      final results = await widget.onSearch('$city 景点');
+      if (!mounted || _nearbyCity != city) {
+        return;
+      }
+      setState(() {
+        _nearbySpots = results.take(3).toList(growable: false);
+        _nearbyLoading = false;
+      });
+    } catch (_) {
+      if (!mounted || _nearbyCity != city) {
+        return;
+      }
+      setState(() {
+        _nearbySpots = [];
+        _nearbyLoading = false;
+      });
+    }
   }
 
   Future<void> _openFeaturedScenicSpot(FeaturedScenicSpot spot) async {
@@ -4247,7 +4307,7 @@ class _HomeScreenState extends State<_HomeScreen> {
       children: [
         _TravelHeroPanel(repository: widget.repository),
         const SizedBox(height: 16),
-        const _SectionHeader(title: 'Find Places'),
+        const _SectionHeader(title: 'Recommend for You'),
         const SizedBox(height: 10),
         SearchQueryField(
           key: const ValueKey('home-search-field'),
@@ -4269,25 +4329,112 @@ class _HomeScreenState extends State<_HomeScreen> {
             onOpenMap: widget.onOpenMap,
           ),
         ],
-        const SizedBox(height: 16),
-        _FeaturedScenicSection(
-          selectedTag: _selectedScenicTag,
-          busy: _scenicSearching,
-          busyName: _scenicSearchingName,
-          onTagSelected: _selectScenicTag,
-          onBrowseAll: () => _browseScenicTag(_selectedScenicTag),
-          onSpotSelected: _openFeaturedScenicSpot,
-        ),
-        const SizedBox(height: 16),
-        const _SectionHeader(title: 'System CityWalks'),
-        const SizedBox(height: 10),
-        for (final template in _cityWalkTemplates) ...[
-          _CityWalkTemplateCard(
-            template: template,
-            onCopy: () => widget.onCopyTemplate(template),
+        if (_nearbyLoading || _nearbySpots.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _NearbyTripSpots(
+            city: _nearbyCity,
+            loading: _nearbyLoading,
+            spots: _nearbySpots,
+            onAdd: widget.onAddSearchResult,
           ),
-          const SizedBox(height: 10),
         ],
+        const SizedBox(height: 16),
+        _CollapsibleSection(
+          title: 'Featured 5A Scenic Spots',
+          child: _FeaturedScenicSection(
+            selectedTag: _selectedScenicTag,
+            busy: _scenicSearching,
+            busyName: _scenicSearchingName,
+            onTagSelected: _selectScenicTag,
+            onBrowseAll: () => _browseScenicTag(_selectedScenicTag),
+            onSpotSelected: _openFeaturedScenicSpot,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _CollapsibleSection(
+          title: 'Hot Citywalks',
+          child: Column(
+            children: [
+              for (final template in _cityWalkTemplates) ...[
+                _CityWalkTemplateCard(
+                  template: template,
+                  onCopy: () => widget.onCopyTemplate(template),
+                ),
+                if (template != _cityWalkTemplates.last)
+                  const SizedBox(height: 10),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// A titled section that collapses its body, collapsed by default.
+class _CollapsibleSection extends StatelessWidget {
+  const _CollapsibleSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card.outlined(
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        title: Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        shape: const Border(),
+        collapsedShape: const Border(),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+        children: [child],
+      ),
+    );
+  }
+}
+
+// Up to three scenic spots near the user's next-trip city, fetched silently
+// from AMap. Always visible (not collapsed) so the recommendation is glanceable.
+class _NearbyTripSpots extends StatelessWidget {
+  const _NearbyTripSpots({
+    required this.city,
+    required this.loading,
+    required this.spots,
+    required this.onAdd,
+  });
+
+  final String? city;
+  final bool loading;
+  final List<TravelSearchResult> spots;
+  final ValueChanged<TravelSearchResult> onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionHeader(title: 'Near Your Next Trip', action: city),
+        const SizedBox(height: 8),
+        if (loading)
+          const LinearProgressIndicator()
+        else
+          Card.outlined(
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                for (final spot in spots) ...[
+                  _SearchResultRow(result: spot, onAdd: () => onAdd(spot)),
+                  if (spot != spots.last)
+                    const Divider(height: 1, indent: 12, endIndent: 12),
+                ],
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -4321,8 +4468,6 @@ class _FeaturedScenicSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionHeader(title: 'Featured 5A Scenic Spots'),
-        const SizedBox(height: 10),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(

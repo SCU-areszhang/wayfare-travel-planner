@@ -5168,15 +5168,14 @@ class _TravelHeroPanel extends StatelessWidget {
                           color: scheme.onPrimaryContainer,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        itemCount == 0
-                            ? 'No planned stops yet. Copy a CityWalk or add a place from search.'
-                            : 'Synced with backend and ready for route planning.',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.onPrimaryContainer,
+                      if (itemCount == 0) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'No planned stops yet. Copy a CityWalk or add a place from search.',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: scheme.onPrimaryContainer),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),

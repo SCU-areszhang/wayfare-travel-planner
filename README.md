@@ -95,13 +95,25 @@ dart run tool/local_demo.dart --amap-key-file=other.csv  # custom key file
 
 ### Hot Reload (debug, with AMap keys)
 
+Run the backend and the hot-reload front end in two terminals.
+
+**Terminal 1 — backend:**
+
+```bash
+cd backend
+dart pub get
+dart run bin/server.dart
+```
+
+**Terminal 2 — Flutter front end (hot reload):**
+
 ```bash
 dart run tool/flutter_run.dart
 ```
 
-- Auto-reads `Amap.csv`, auto-detects Chrome/Edge
-- Passes `AMAP_JS_KEY` via `--dart-define-from-file`
-- Supports hot reload
+`flutter_run.dart` auto-reads `Amap.csv`, auto-detects Chrome/Edge, passes
+`AMAP_JS_KEY` via `--dart-define-from-file`, and keeps hot reload (`r`) and hot
+restart (`R`) available. Works identically on Windows, Linux, and macOS.
 
 ### Manual Two-Terminal Setup
 

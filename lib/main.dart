@@ -6245,10 +6245,11 @@ class _ItineraryScreen extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 16),
-        for (final day in days) ...[
+        for (var dayIndex = 0; dayIndex < days.length; dayIndex++) ...[
           _ItineraryDayRouteCard(
-            day: day,
-            onDeleteDay: () => onDeleteDay(day),
+            day: days[dayIndex],
+            dayIndex: dayIndex,
+            onDeleteDay: () => onDeleteDay(days[dayIndex]),
             onEdit: onEdit,
             onMove: onMove,
             onDelete: onDelete,
@@ -6265,6 +6266,7 @@ class _ItineraryScreen extends StatelessWidget {
 class _ItineraryDayRouteCard extends StatelessWidget {
   const _ItineraryDayRouteCard({
     required this.day,
+    required this.dayIndex,
     required this.onDeleteDay,
     required this.onEdit,
     required this.onMove,
@@ -6274,6 +6276,7 @@ class _ItineraryDayRouteCard extends StatelessWidget {
   });
 
   final ItineraryDay day;
+  final int dayIndex;
   final VoidCallback onDeleteDay;
   final ValueChanged<ItineraryItem> onEdit;
   final ValueChanged<ItineraryItem> onMove;
@@ -6284,8 +6287,15 @@ class _ItineraryDayRouteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Alternate consecutive days between Monet primary and secondary roles so
+    // adjacent date cards are visually distinct.
+    final usePrimary = dayIndex.isEven;
+    final container =
+        usePrimary ? scheme.primaryContainer : scheme.secondaryContainer;
+    final onContainer =
+        usePrimary ? scheme.onPrimaryContainer : scheme.onSecondaryContainer;
     return Card.filled(
-      color: scheme.surfaceContainerHighest.withValues(alpha: 0.52),
+      color: container.withValues(alpha: 0.34),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -6298,12 +6308,12 @@ class _ItineraryDayRouteCard extends StatelessWidget {
                   width: 46,
                   height: 46,
                   decoration: BoxDecoration(
-                    color: scheme.primaryContainer,
+                    color: container,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     Icons.calendar_month_outlined,
-                    color: scheme.onPrimaryContainer,
+                    color: onContainer,
                   ),
                 ),
                 const SizedBox(width: 12),

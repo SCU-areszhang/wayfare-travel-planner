@@ -1186,9 +1186,7 @@ List<MapPlace> _scheduledMapPlacesFromDays(List<ItineraryDay> days) {
 }
 
 String _dayPickerLabel(ItineraryDay day) {
-  final count = _stopCountLabel(day.items.length);
-  final city = day.city.trim();
-  return city.isEmpty ? '${day.date} | $count' : '${day.date} | $city | $count';
+  return day.date;
 }
 
 ItineraryItem _itemFromJson(Map<String, Object?> json) {
@@ -3066,7 +3064,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                           DropdownMenuItem<int>(
                             value: i,
                             child: Text(
-                              '${_repository.itineraryDays[i].title} | ${_repository.itineraryDays[i].date}',
+                              _dayPickerLabel(_repository.itineraryDays[i]),
                             ),
                           ),
                       ],
@@ -3215,7 +3213,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                         for (var i = 0; i < days.length; i++)
                           DropdownMenuItem<int>(
                             value: i,
-                            child: Text('${days[i].title} | ${days[i].date}'),
+                            child: Text(_dayPickerLabel(days[i])),
                           ),
                       ],
                       onChanged: (value) {

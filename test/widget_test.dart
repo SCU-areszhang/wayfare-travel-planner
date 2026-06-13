@@ -312,7 +312,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('move-item-day-0-2')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('$secondDate | Suzhou | 0 stops').last);
+    await tester.tap(find.text(secondDate).last);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Move'));
     await tester.pumpAndSettle();

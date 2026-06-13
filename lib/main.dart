@@ -1787,6 +1787,15 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   var _syncing = false;
   String? _backendError;
 
+  // Most recent city resolved from an AMap map pick, used as the default city
+  // for newly created itinerary days instead of a hardcoded placeholder.
+  String? _lastResolvedCity;
+
+  String _cityForNewDay() {
+    final city = _lastResolvedCity?.trim() ?? '';
+    return city.isEmpty ? 'Current city' : city;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2312,7 +2321,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         itineraryId,
         title: _isoDate(DateTime.now()),
         date: _isoDate(DateTime.now()),
-        city: 'Current city',
+        city: _cityForNewDay(),
         reminder: 'Review route before departure',
       ),
     );
@@ -2478,9 +2487,12 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
 
   Future<int?> _pickAndAddDayFromDropdown(
     BuildContext pickerContext, {
-    String city = 'Current city',
+    String? city,
     String reminder = 'Review route before departure',
   }) async {
+    final resolvedCity = (city == null || city.trim().isEmpty)
+        ? _cityForNewDay()
+        : city;
     final picked = await showDatePicker(
       context: pickerContext,
       initialDate: DateTime.now(),
@@ -2501,7 +2513,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     final created = await _addDay(
       title: isoDate,
       date: isoDate,
-      city: city,
+      city: resolvedCity,
       reminder: reminder,
     );
     if (!created || !mounted) {
@@ -2955,6 +2967,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   }
 
   Future<bool> _showMapPointAddSheet(AmapPickResult pick) async {
+    final pickedCity = pick.city?.trim() ?? '';
+    if (pickedCity.isNotEmpty) {
+      _lastResolvedCity = pickedCity;
+    }
     if (!await _ensureDefaultDay()) {
       return false;
     }

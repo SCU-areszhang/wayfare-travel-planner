@@ -24,11 +24,13 @@ class AmapPickResult {
     required this.point,
     required this.name,
     this.address,
+    this.city,
   });
 
   final LatLng point;
   final String name;
   final String? address;
+  final String? city;
 }
 
 class AmapRouteSegment {

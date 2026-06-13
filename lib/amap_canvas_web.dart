@@ -31,11 +31,13 @@ class AmapPickResult {
     required this.point,
     required this.name,
     this.address,
+    this.city,
   });
 
   final LatLng point;
   final String name;
   final String? address;
+  final String? city;
 }
 
 class AmapRouteSegment {
@@ -240,6 +242,7 @@ class _AmapCanvasState extends State<AmapCanvas> with WidgetsBindingObserver {
               ? detail['name'].toString()
               : 'Selected map point',
           address: detail['address']?.toString(),
+          city: detail['city']?.toString(),
         ),
       );
     });
@@ -506,11 +509,18 @@ const _bridgeScript = r'''
         const aois = Array.isArray(regeocode.aois) ? regeocode.aois : [];
         const nearest = pois[0] || aois[0] || null;
         const formattedAddress = regeocode.formattedAddress || '';
+        const component = regeocode.addressComponent || {};
+        // Municipalities (Beijing/Shanghai/...) report an empty city array, so
+        // fall back to the province name.
+        const cityName = (typeof component.city === 'string' && component.city)
+          ? component.city
+          : (component.province || '');
         sendPick({
           lng: lng,
           lat: lat,
           name: nearest && nearest.name ? nearest.name : (formattedAddress || fallback.name),
           address: formattedAddress,
+          city: cityName,
           poiType: nearest && nearest.type ? nearest.type : '',
           poiDistance: nearest && nearest.distance ? nearest.distance : ''
         });

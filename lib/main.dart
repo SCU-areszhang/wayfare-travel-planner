@@ -2059,7 +2059,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           active: _tab == AppTab.explore,
           places: _repository.mapPlaces,
           itineraryDays: _repository.itineraryDays,
-          onPlaceSelected: _showPlaceSheet,
           onMapPointPicked: _showMapPointAddSheet,
           onSearch: widget.backend.searchPlaces,
           onAddSearchResult: (result) => _showAddPlaceToDaySheet(
@@ -2996,62 +2995,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
               ),
             );
           },
-        );
-      },
-    );
-  }
-
-  void _showPlaceSheet(MapPlace place) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return _SheetPadding(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                place.name,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                [
-                  place.category,
-                  place.distance,
-                  place.rating,
-                ].where((part) => part.trim().isNotEmpty).join(' | '),
-              ),
-              const SizedBox(height: 12),
-              Text(place.description),
-              const SizedBox(height: 18),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _showAddPlaceToDaySheet(
-                        place.name,
-                        'Visit ${place.category}',
-                        place.description,
-                        point: place.point,
-                      );
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add to Itinerary'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _showInfo(place.name, place.description),
-                    icon: const Icon(Icons.search),
-                    label: const Text('View Detail'),
-                  ),
-                ],
-              ),
-            ],
-          ),
         );
       },
     );
@@ -5402,7 +5345,6 @@ class _ExploreScreen extends StatefulWidget {
     required this.active,
     required this.places,
     required this.itineraryDays,
-    required this.onPlaceSelected,
     required this.onMapPointPicked,
     required this.onSearch,
     required this.onAddSearchResult,
@@ -5414,7 +5356,6 @@ class _ExploreScreen extends StatefulWidget {
   final bool active;
   final List<MapPlace> places;
   final List<ItineraryDay> itineraryDays;
-  final ValueChanged<MapPlace> onPlaceSelected;
   final Future<bool> Function(AmapPickResult pick) onMapPointPicked;
   final Future<List<TravelSearchResult>> Function(String query) onSearch;
   final ValueChanged<TravelSearchResult> onAddSearchResult;
@@ -5828,7 +5769,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
             title: place.name,
             snippet: '${place.category} | ${place.description}',
           ),
-          onTap: (_) => widget.onPlaceSelected(place),
+          onTap: (_) => _selectPlaceAsPick(place),
         ),
       );
     }
@@ -5920,10 +5861,22 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   void _handleWebMarkerTap(String markerId) {
     for (final place in _visiblePlaces) {
       if (place.id == markerId) {
-        widget.onPlaceSelected(place);
+        _selectPlaceAsPick(place);
         return;
       }
     }
+  }
+
+  // Tapping any existing marker selects it the same way a fresh map pick does:
+  // it shows the selected-point bar and opens the add-to-itinerary flow.
+  void _selectPlaceAsPick(MapPlace place) {
+    _openMapPickSheet(
+      AmapPickResult(
+        point: place.point,
+        name: place.name,
+        address: place.description,
+      ),
+    );
   }
 
   // Scheduled markers carry their day's date as the category; resolve that

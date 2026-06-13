@@ -2104,7 +2104,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           repository: _repository,
           user: widget.user,
           themeSource: widget.themeSource,
-          onThemePick: _showThemeChooser,
+          onThemeChanged: widget.onThemeChanged,
           onHelp: _showHelpCenter,
           onFeedback: _showFeedbackSheet,
           onShowInfo: _showInfo,
@@ -3559,56 +3559,6 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
             child: const Text('Delete'),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showThemeChooser() {
-    var selected = widget.themeSource;
-    showDialog<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            title: const Text('Color source'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Material You converts the selected source into coordinated Material 3 roles across buttons, cards, chips, sheets, and navigation.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  for (final source in ThemeSource.values)
-                    ListTile(
-                      leading: Icon(
-                        selected == source
-                            ? Icons.check_circle
-                            : Icons.radio_button_unchecked,
-                      ),
-                      title: Text(source.label),
-                      trailing: CircleAvatar(backgroundColor: source.seed),
-                      onTap: () => setDialogState(() => selected = source),
-                    ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  widget.onThemeChanged(selected);
-                  Navigator.pop(context);
-                },
-                child: const Text('Apply'),
-              ),
-            ],
-          );
-        },
       ),
     );
   }
@@ -6960,7 +6910,7 @@ class _ProfileScreen extends StatefulWidget {
     required this.repository,
     required this.user,
     required this.themeSource,
-    required this.onThemePick,
+    required this.onThemeChanged,
     required this.onHelp,
     required this.onFeedback,
     required this.onShowInfo,
@@ -6970,7 +6920,7 @@ class _ProfileScreen extends StatefulWidget {
   final TravelDataRepository repository;
   final AppUser user;
   final ThemeSource themeSource;
-  final VoidCallback onThemePick;
+  final ValueChanged<ThemeSource> onThemeChanged;
   final VoidCallback onHelp;
   final VoidCallback onFeedback;
   final void Function(String title, String message) onShowInfo;
@@ -7026,21 +6976,6 @@ class _ProfileScreenState extends State<_ProfileScreen> {
                           color: scheme.onPrimaryContainer,
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      const Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _MetricPill(
-                            icon: Icons.storage_outlined,
-                            label: 'SQLite data',
-                          ),
-                          _MetricPill(
-                            icon: Icons.verified_user_outlined,
-                            label: 'Signed in',
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -7072,35 +7007,17 @@ class _ProfileScreenState extends State<_ProfileScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        Card.outlined(
-          child: ListTile(
-            leading: const Icon(Icons.route_outlined),
-            title: Text(widget.repository.activeItineraryTitle),
-            subtitle: const Text('Current backend itinerary'),
-          ),
-        ),
         const SizedBox(height: 16),
         const _SectionHeader(title: 'Account Settings'),
         const SizedBox(height: 10),
         Card.outlined(
           child: Column(
             children: [
-              ListTile(
-                leading: const Icon(Icons.privacy_tip_outlined),
-                title: const Text('Privacy'),
-                subtitle: const Text('Local SQLite account and itinerary data'),
-                onTap: () => widget.onShowInfo(
-                  'Privacy',
-                  'This prototype stores account identifiers, saved trips, and itinerary data in the local SQLite backend.',
-                ),
+              _AppearanceControl(
+                themeSource: widget.themeSource,
+                onThemeChanged: widget.onThemeChanged,
               ),
-              ListTile(
-                leading: const Icon(Icons.palette_outlined),
-                title: const Text('Appearance'),
-                subtitle: Text(widget.themeSource.label),
-                onTap: widget.onThemePick,
-              ),
+              const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.logout),
                 title: const Text('Sign out'),
@@ -7131,6 +7048,101 @@ class _ProfileScreenState extends State<_ProfileScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+// Appearance control: a follow-system switch that, when turned off, reveals a
+// palette of accent colors to pick from (matching the requested design).
+class _AppearanceControl extends StatelessWidget {
+  const _AppearanceControl({
+    required this.themeSource,
+    required this.onThemeChanged,
+  });
+
+  final ThemeSource themeSource;
+  final ValueChanged<ThemeSource> onThemeChanged;
+
+  static const _accentSources = [
+    ThemeSource.ocean,
+    ThemeSource.forest,
+    ThemeSource.sunrise,
+    ThemeSource.neutral,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final followSystem = themeSource == ThemeSource.system;
+    return Column(
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.palette_outlined),
+          title: const Text('Follow system colors'),
+          subtitle: Text(
+            followSystem
+                ? 'Using your system dynamic color'
+                : 'Using a custom accent color',
+          ),
+          value: followSystem,
+          onChanged: (on) =>
+              onThemeChanged(on ? ThemeSource.system : ThemeSource.ocean),
+        ),
+        if (!followSystem)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(72, 0, 16, 16),
+              child: Wrap(
+                spacing: 14,
+                runSpacing: 14,
+                children: [
+                  for (final source in _accentSources)
+                    _ColorSwatch(
+                      color: source.seed,
+                      selected: themeSource == source,
+                      onTap: () => onThemeChanged(source),
+                    ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ColorSwatch extends StatelessWidget {
+  const _ColorSwatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkResponse(
+      onTap: onTap,
+      radius: 28,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected ? scheme.onSurface : scheme.outlineVariant,
+            width: selected ? 3 : 1,
+          ),
+        ),
+        child: selected
+            ? const Icon(Icons.check, color: Colors.white, size: 20)
+            : null,
+      ),
     );
   }
 }

@@ -12,6 +12,7 @@ import 'package:latlong2/latlong.dart' hide Path;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'amap_canvas_stub.dart' if (dart.library.html) 'amap_canvas_web.dart';
+import 'color_picker_dialog.dart';
 import 'login_identifier_field_stub.dart'
     if (dart.library.html) 'login_identifier_field_web.dart';
 import 'scenic_spots_5a.dart';
@@ -147,6 +148,16 @@ enum ThemeSource {
   ocean('Ocean Blue', Color(0xFF0B6B8A)),
   forest('Forest Green', Color(0xFF2E6F40)),
   sunrise('Sunrise Orange', Color(0xFFB65D21)),
+  rose('Rose', Color(0xFFB3264E)),
+  violet('Violet', Color(0xFF7E57C2)),
+  indigo('Indigo', Color(0xFF5C6BC0)),
+  teal('Teal', Color(0xFF00897B)),
+  cyan('Cyan', Color(0xFF00ACC1)),
+  sky('Sky', Color(0xFF039BE5)),
+  lime('Lime', Color(0xFF9CB344)),
+  amber('Amber', Color(0xFFFFA000)),
+  peach('Peach', Color(0xFFFF7043)),
+  brown('Brown', Color(0xFF6D4C41)),
   neutral('Neutral Gray', Color(0xFF5F6368)),
   custom('Custom Accent Color', Color(0xFF386A8B));
 
@@ -1689,32 +1700,19 @@ class _LoginScreenState extends State<_LoginScreen> {
                   },
                 ),
                 const SizedBox(height: 14),
-                TextField(
+                PasswordField(
                   controller: _password,
                   enabled: !_submitting,
-                  obscureText: _obscurePassword,
+                  obscurePassword: _obscurePassword,
+                  errorText: _passwordError,
                   onChanged: (_) {
                     if (_passwordError != null) {
                       setState(() => _passwordError = null);
                     }
                   },
-                  onSubmitted: (_) => _submitting ? null : _submit(),
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    helperText: 'New accounts set this password on first sign in',
-                    errorText: _passwordError,
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      tooltip: _obscurePassword ? 'Show' : 'Hide',
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
-                    ),
-                  ),
+                  onToggleObscure: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
+                  onSubmitted: _submitting ? null : _submit,
                 ),
                 const SizedBox(height: 8),
                 CheckboxListTile(
@@ -7336,7 +7334,7 @@ class _ProfileScreenState extends State<_ProfileScreen> {
                 onTap: widget.onChangePassword,
               ),
               const Divider(height: 1),
-              _AppearanceControl(
+              AppearanceControl(
                 themeSource: widget.themeSource,
                 onThemeChanged: widget.onThemeChanged,
               ),
@@ -7371,101 +7369,6 @@ class _ProfileScreenState extends State<_ProfileScreen> {
           ),
         ),
       ],
-    );
-  }
-}
-
-// Appearance control: a follow-system switch that, when turned off, reveals a
-// palette of accent colors to pick from (matching the requested design).
-class _AppearanceControl extends StatelessWidget {
-  const _AppearanceControl({
-    required this.themeSource,
-    required this.onThemeChanged,
-  });
-
-  final ThemeSource themeSource;
-  final ValueChanged<ThemeSource> onThemeChanged;
-
-  static const _accentSources = [
-    ThemeSource.ocean,
-    ThemeSource.forest,
-    ThemeSource.sunrise,
-    ThemeSource.neutral,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final followSystem = themeSource == ThemeSource.system;
-    return Column(
-      children: [
-        SwitchListTile(
-          secondary: const Icon(Icons.palette_outlined),
-          title: const Text('Follow system colors'),
-          subtitle: Text(
-            followSystem
-                ? 'Using your system dynamic color'
-                : 'Using a custom accent color',
-          ),
-          value: followSystem,
-          onChanged: (on) =>
-              onThemeChanged(on ? ThemeSource.system : ThemeSource.ocean),
-        ),
-        if (!followSystem)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(72, 0, 16, 16),
-              child: Wrap(
-                spacing: 14,
-                runSpacing: 14,
-                children: [
-                  for (final source in _accentSources)
-                    _ColorSwatch(
-                      color: source.seed,
-                      selected: themeSource == source,
-                      onTap: () => onThemeChanged(source),
-                    ),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _ColorSwatch extends StatelessWidget {
-  const _ColorSwatch({
-    required this.color,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return InkResponse(
-      onTap: onTap,
-      radius: 28,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? scheme.onSurface : scheme.outlineVariant,
-            width: selected ? 3 : 1,
-          ),
-        ),
-        child: selected
-            ? const Icon(Icons.check, color: Colors.white, size: 20)
-            : null,
-      ),
     );
   }
 }

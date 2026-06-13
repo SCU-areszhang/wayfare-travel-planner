@@ -13,11 +13,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'amap_canvas_stub.dart' if (dart.library.html) 'amap_canvas_web.dart';
 import 'color_picker_dialog.dart';
+import 'home_recommend_section.dart';
 import 'login_identifier_field_stub.dart'
     if (dart.library.html) 'login_identifier_field_web.dart';
 import 'scenic_spots_5a.dart';
-import 'search_query_field_stub.dart'
-    if (dart.library.html) 'search_query_field_web.dart';
 
 const _amapAndroidKey = String.fromEnvironment('AMAP_ANDROID_KEY');
 const _amapIosKey = String.fromEnvironment('AMAP_IOS_KEY');
@@ -2016,9 +2015,12 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           label: const Text('Plan'),
         );
       case AppTab.itinerary:
+        final scheme = Theme.of(context).colorScheme;
         return FloatingActionButton(
           tooltip: 'Add attraction or activity',
           onPressed: () => _showEditItemSheet(),
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
           child: const Icon(Icons.add),
         );
       case AppTab.explore:
@@ -4420,7 +4422,7 @@ class _HomeScreenState extends State<_HomeScreen> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => _ScenicTagSheet(tag: tag),
+      builder: (context) => ScenicTagSheet(tag: tag),
     );
     if (spot != null && mounted) {
       await _openFeaturedScenicSpot(spot);
@@ -4471,14 +4473,20 @@ class _HomeScreenState extends State<_HomeScreen> {
       children: [
         _TravelHeroPanel(repository: widget.repository),
         const SizedBox(height: 16),
-        const _SectionHeader(title: 'Recommend for You'),
+        const _SectionHeader(title: 'Search Anything'),
         const SizedBox(height: 10),
-        SearchQueryField(
-          key: const ValueKey('home-search-field'),
+        SearchBar(
           controller: _searchController,
-          enabled: !_searching,
+          leading: const Icon(Icons.search),
+          hintText: 'Search scenic spots, cities, or attractions',
+          trailing: [
+            IconButton(
+              tooltip: 'Search',
+              onPressed: _searching ? null : _runSearch,
+              icon: const Icon(Icons.arrow_forward),
+            ),
+          ],
           onSubmitted: (_) => _runSearch(),
-          onSearch: _runSearch,
         ),
         if (_searching) ...[
           const SizedBox(height: 8),
@@ -4493,36 +4501,48 @@ class _HomeScreenState extends State<_HomeScreen> {
             onOpenMap: widget.onOpenMap,
           ),
         ],
+        const SizedBox(height: 16),
+        const _SectionHeader(title: 'Recommend for You'),
+        const SizedBox(height: 10),
         if (_nearbyLoading || _nearbySpots.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          _NearbyTripSpots(
+          NearbyTripSpots(
             city: _nearbyCity,
             loading: _nearbyLoading,
             spots: _nearbySpots,
             onAdd: widget.onAddSearchResult,
+            searchResultBuilder: (result, onAdd) => _SearchResultRow(result: result, onAdd: onAdd),
           ),
+          const SizedBox(height: 8),
         ],
-        const SizedBox(height: 16),
-        _CollapsibleSection(
+        CollapsibleSection(
           title: 'Featured 5A Scenic Spots',
-          child: _FeaturedScenicSection(
+          child: FeaturedScenicSection(
             selectedTag: _selectedScenicTag,
             busy: _scenicSearching,
             busyName: _scenicSearchingName,
             onTagSelected: _selectScenicTag,
             onBrowseAll: () => _browseScenicTag(_selectedScenicTag),
             onSpotSelected: _openFeaturedScenicSpot,
+            scenicCardBuilder: (spot, busy, onSelected) => FeaturedScenicCard(
+              spot: spot,
+              busy: busy,
+              onSelected: onSelected,
+            ),
           ),
         ),
         const SizedBox(height: 12),
-        _CollapsibleSection(
+        CollapsibleSection(
           title: 'Hot Citywalks',
           child: Column(
             children: [
               for (final template in _cityWalkTemplates) ...[
-                _CityWalkTemplateCard(
+                CityWalkTemplateCard(
                   template: template,
                   onCopy: () => widget.onCopyTemplate(template),
+                  metricPillBuilder: ({required IconData icon, required String label, bool filled = false}) =>
+                      _MetricPill(icon: icon, label: label, filled: filled),
+                  stopPreviewBuilder: ({required int index, required CityWalkStop stop}) =>
+                      _CityWalkStopPreview(index: index, stop: stop),
                 ),
                 if (template != _cityWalkTemplates.last)
                   const SizedBox(height: 10),
@@ -4535,452 +4555,7 @@ class _HomeScreenState extends State<_HomeScreen> {
   }
 }
 
-// A titled section that collapses its body, collapsed by default.
-class _CollapsibleSection extends StatelessWidget {
-  const _CollapsibleSection({required this.title, required this.child});
-
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card.outlined(
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        title: Text(
-          title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        shape: const Border(),
-        collapsedShape: const Border(),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
-        children: [child],
-      ),
-    );
-  }
-}
-
-// Up to three scenic spots near the user's next-trip city, fetched silently
-// from AMap. Always visible (not collapsed) so the recommendation is glanceable.
-class _NearbyTripSpots extends StatelessWidget {
-  const _NearbyTripSpots({
-    required this.city,
-    required this.loading,
-    required this.spots,
-    required this.onAdd,
-  });
-
-  final String? city;
-  final bool loading;
-  final List<TravelSearchResult> spots;
-  final ValueChanged<TravelSearchResult> onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _SectionHeader(title: 'Near Your Next Trip', action: city),
-        const SizedBox(height: 8),
-        if (loading)
-          const LinearProgressIndicator()
-        else
-          Card.outlined(
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                for (final spot in spots) ...[
-                  _SearchResultRow(result: spot, onAdd: () => onAdd(spot)),
-                  if (spot != spots.last)
-                    const Divider(height: 1, indent: 12, endIndent: 12),
-                ],
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _FeaturedScenicSection extends StatelessWidget {
-  const _FeaturedScenicSection({
-    required this.selectedTag,
-    required this.busy,
-    required this.busyName,
-    required this.onTagSelected,
-    required this.onBrowseAll,
-    required this.onSpotSelected,
-  });
-
-  final String selectedTag;
-  final bool busy;
-  final String? busyName;
-  final ValueChanged<String> onTagSelected;
-  final VoidCallback onBrowseAll;
-  final ValueChanged<FeaturedScenicSpot> onSpotSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final spots = featuredScenicSpots
-        .where((spot) => spot.tags.contains(selectedTag))
-        .toList(growable: false);
-    final tagTotal = all5AScenicSpots
-        .where((spot) => spot.tags.contains(selectedTag))
-        .length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final tag in featuredScenicTags) ...[
-                SizedBox(
-                  width: 85,
-                  child: FilterChip(
-                    key: ValueKey('scenic-tag-$tag'),
-                    label: Text(tag),
-                    selected: selectedTag == tag,
-                    onSelected: (_) => onTagSelected(tag),
-                    visualDensity: VisualDensity.comfortable,
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ],
-          ),
-        ),
-        if (busy) ...[
-          const SizedBox(height: 10),
-          const LinearProgressIndicator(),
-        ],
-        const SizedBox(height: 10),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final expanded = constraints.maxWidth >= 680;
-            final children = [
-              for (final spot in spots)
-                _FeaturedScenicCard(
-                  spot: spot,
-                  busy: busy && busyName == spot.name,
-                  onSelected: () => onSpotSelected(spot),
-                ),
-            ];
-            if (!expanded) {
-              return Column(
-                children: [
-                  for (final child in children) ...[
-                    child,
-                    if (child != children.last) const SizedBox(height: 8),
-                  ],
-                ],
-              );
-            }
-            return Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final child in children)
-                  SizedBox(
-                    width: (constraints.maxWidth - 10) / 2,
-                    child: child,
-                  ),
-              ],
-            );
-          },
-        ),
-        const SizedBox(height: 6),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            key: const ValueKey('scenic-browse-all'),
-            onPressed: busy ? null : () => onBrowseAll(),
-            icon: const Icon(Icons.travel_explore_outlined),
-            label: Text('Browse all $tagTotal "$selectedTag" 5A spots'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ScenicTagSheet extends StatelessWidget {
-  const _ScenicTagSheet({required this.tag});
-
-  final String tag;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final spots = all5AScenicSpots
-        .where((spot) => spot.tags.contains(tag))
-        .toList(growable: false);
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.72;
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$tag · 5A Scenic Spots',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Tap a spot to search it and pick a day & time.',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _CompactLabel(text: '${spots.length}'),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
-                itemCount: spots.length,
-                separatorBuilder: (_, __) =>
-                    const Divider(height: 1, indent: 64, endIndent: 16),
-                itemBuilder: (context, index) {
-                  final spot = spots[index];
-                  return ListTile(
-                    key: ValueKey('scenic-sheet-${spot.name}'),
-                    dense: true,
-                    visualDensity: const VisualDensity(
-                      horizontal: 0,
-                      vertical: -1,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    leading: Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: scheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        spot.icon,
-                        size: 20,
-                        color: scheme.onSecondaryContainer,
-                      ),
-                    ),
-                    title: Text(
-                      spot.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${spot.city} · ${spot.summary}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: IconButton.filledTonal(
-                      tooltip: 'Add scenic spot',
-                      iconSize: 20,
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => Navigator.pop(context, spot),
-                      icon: const Icon(Icons.add),
-                    ),
-                    onTap: () => Navigator.pop(context, spot),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FeaturedScenicCard extends StatelessWidget {
-  const _FeaturedScenicCard({
-    required this.spot,
-    required this.busy,
-    required this.onSelected,
-  });
-
-  final FeaturedScenicSpot spot;
-  final bool busy;
-  final VoidCallback onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card.outlined(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: busy ? null : onSelected,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-          child: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  spot.icon,
-                  color: scheme.onPrimaryContainer,
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      spot.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${spot.city} · ${spot.level} · ${spot.tags.join(" / ")}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      spot.summary,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox.square(
-                dimension: 42,
-                child: IconButton.filled(
-                  key: ValueKey('featured-scenic-add-${spot.query}'),
-                  tooltip: 'Add scenic spot',
-                  onPressed: busy ? null : onSelected,
-                  icon: busy
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.add),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchResultsPanel extends StatelessWidget {
-  const _SearchResultsPanel({
-    required this.results,
-    required this.error,
-    required this.onAdd,
-    required this.onOpenMap,
-  });
-
-  final List<TravelSearchResult> results;
-  final String? error;
-  final ValueChanged<TravelSearchResult> onAdd;
-  final VoidCallback onOpenMap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final errorText = error;
-    if (errorText != null) {
-      return Card.outlined(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Text('Search failed: $errorText'),
-        ),
-      );
-    }
-    if (results.isEmpty) {
-      return Card.outlined(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Icon(Icons.map_outlined, color: scheme.primary),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  'No matching scenic spot. Use map pick mode instead.',
-                ),
-              ),
-              TextButton.icon(
-                onPressed: onOpenMap,
-                icon: const Icon(Icons.add_location_alt_outlined),
-                label: const Text('Map'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final visibleResults = results.take(8).toList(growable: false);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _SectionHeader(
-          title: 'Search Results',
-          action: '${results.length} results',
-        ),
-        const SizedBox(height: 8),
-        Card.outlined(
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              for (final result in visibleResults) ...[
-                _SearchResultRow(result: result, onAdd: () => onAdd(result)),
-                if (result != visibleResults.last)
-                  const Divider(height: 1, indent: 12, endIndent: 12),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
+// SearchResultRow is used by both Home and Explore screens
 class _SearchResultRow extends StatelessWidget {
   const _SearchResultRow({required this.result, required this.onAdd});
 
@@ -5077,106 +4652,77 @@ class _CompactLabel extends StatelessWidget {
   }
 }
 
-class _CityWalkTemplateCard extends StatelessWidget {
-  const _CityWalkTemplateCard({required this.template, required this.onCopy});
+class _SearchResultsPanel extends StatelessWidget {
+  const _SearchResultsPanel({
+    required this.results,
+    required this.error,
+    required this.onAdd,
+    required this.onOpenMap,
+  });
 
-  final CityWalkTemplate template;
-  final VoidCallback onCopy;
+  final List<TravelSearchResult> results;
+  final String? error;
+  final ValueChanged<TravelSearchResult> onAdd;
+  final VoidCallback onOpenMap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final previewStops = template.stops.take(3).toList(growable: false);
-    return Card.filled(
-      color: scheme.surfaceContainerHighest.withValues(alpha: 0.52),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.directions_walk,
-                    color: scheme.onPrimaryContainer,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        template.title,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        template.summary,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FilledButton.tonalIcon(
-                  key: ValueKey('copy-citywalk-${template.id}'),
-                  onPressed: onCopy,
-                  icon: const Icon(Icons.content_copy),
-                  label: const Text('Copy'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _MetricPill(
-                  icon: Icons.location_city_outlined,
-                  label: template.city,
-                  filled: true,
-                ),
-                _MetricPill(
-                  icon: Icons.schedule_outlined,
-                  label: template.duration,
-                ),
-                _MetricPill(
-                  icon: Icons.route_outlined,
-                  label: '${template.stops.length} stops',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Divider(color: scheme.outlineVariant),
-            const SizedBox(height: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var index = 0; index < previewStops.length; index++) ...[
-                  _CityWalkStopPreview(
-                    index: index + 1,
-                    stop: previewStops[index],
-                  ),
-                  if (index != previewStops.length - 1)
-                    const SizedBox(height: 8),
-                ],
-              ],
-            ),
-          ],
+    final errorText = error;
+    if (errorText != null) {
+      return Card.outlined(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Text('Search failed: $errorText'),
         ),
-      ),
+      );
+    }
+    if (results.isEmpty) {
+      return Card.outlined(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Icon(Icons.map_outlined, color: scheme.primary),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'No matching scenic spot. Use map pick mode instead.',
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onOpenMap,
+                icon: const Icon(Icons.add_location_alt_outlined),
+                label: const Text('Map'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final visibleResults = results.take(8).toList(growable: false);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionHeader(
+          title: 'Search Results',
+          action: '${results.length} results',
+        ),
+        const SizedBox(height: 8),
+        Card.outlined(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (final result in visibleResults) ...[
+                _SearchResultRow(result: result, onAdd: () => onAdd(result)),
+                if (result != visibleResults.last)
+                  const Divider(height: 1, indent: 12, endIndent: 12),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -5657,12 +5203,18 @@ class _ExploreScreenState extends State<_ExploreScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: SearchQueryField(
-            key: const ValueKey('explore-search-field'),
+          child: SearchBar(
             controller: _searchController,
-            enabled: !_searching,
+            leading: const Icon(Icons.search),
+            hintText: 'Search scenic spots, cities, or attractions',
+            trailing: [
+              IconButton(
+                tooltip: 'Search',
+                onPressed: _searching ? null : _runSearch,
+                icon: const Icon(Icons.arrow_forward),
+              ),
+            ],
             onSubmitted: (_) => _runSearch(),
-            onSearch: _runSearch,
           ),
         ),
         if (_searching) const LinearProgressIndicator(),

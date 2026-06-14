@@ -1,0 +1,40 @@
+PODS:
+  - AMap3DMap (11.2.000):
+    - AMapFoundation (>= 1.9.0)
+  - amap_flutter_map (0.0.1):
+    - AMap3DMap
+    - Flutter
+  - AMapFoundation (1.9.0)
+  - Flutter (1.0.0)
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - amap_flutter_map (from `.symlinks/plugins/amap_flutter_map/ios`)
+  - Flutter (from `Flutter`)
+  - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+
+SPEC REPOS:
+  trunk:
+    - AMap3DMap
+    - AMapFoundation
+
+EXTERNAL SOURCES:
+  amap_flutter_map:
+    :path: ".symlinks/plugins/amap_flutter_map/ios"
+  Flutter:
+    :path: Flutter
+  shared_preferences_foundation:
+    :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+
+SPEC CHECKSUMS:
+  AMap3DMap: 940c6f6ce6ff3089c5c2211b0dfb51ef43262fe8
+  amap_flutter_map: 6cde084007a3ed06235383d46bc73c6c9a80c1e6
+  AMapFoundation: 5f01fcabd1e591967e52178d2d96dac843396285
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+
+PODFILE CHECKSUM: 0228bd5c2581423bf0193836b789df588fd53d68
+
+COCOAPODS: 1.16.2

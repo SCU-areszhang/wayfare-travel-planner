@@ -321,7 +321,7 @@
     if ([annotation isKindOfClass:[MAPointAnnotation class]] == NO) {
         return nil;
     }
-    MAPointAnnotation *fAnno = annotation;
+    MAPointAnnotation *fAnno = (MAPointAnnotation *)annotation;
     if (fAnno.markerId == nil) {
         return nil;
     }
@@ -342,10 +342,10 @@
  */
 - (void)mapView:(MAMapView *)mapView didAddAnnotationViews:(NSArray *)views {
     for (MAAnnotationView *view in views) {
-        if ([view.annotation isKindOfClass:[MAAnnotationView class]] == NO) {
+        if ([view.annotation isKindOfClass:[MAPointAnnotation class]] == NO) {
             return;
         }
-        MAPointAnnotation *fAnno = view.annotation;
+        MAPointAnnotation *fAnno = (MAPointAnnotation *)view.annotation;
         if (fAnno.markerId == nil) {
             return;
         }
@@ -374,7 +374,7 @@
  * @param view annotationView
  */
 - (void)mapView:(MAMapView *)mapView didAnnotationViewTapped:(MAAnnotationView *)view {
-    MAPointAnnotation *fAnno = view.annotation;
+    MAPointAnnotation *fAnno = (MAPointAnnotation *)view.annotation;
     if (fAnno.markerId == nil) {
         return;
     }
@@ -391,7 +391,7 @@
 - (void)mapView:(MAMapView *)mapView annotationView:(MAAnnotationView *)view didChangeDragState:(MAAnnotationViewDragState)newState
    fromOldState:(MAAnnotationViewDragState)oldState {
     if (newState == MAAnnotationViewDragStateEnding) {
-        MAPointAnnotation *fAnno = view.annotation;
+        MAPointAnnotation *fAnno = (MAPointAnnotation *)view.annotation;
         if (fAnno.markerId == nil) {
             return;
         }

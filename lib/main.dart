@@ -5414,15 +5414,20 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                         ),
                         scaleEnabled: true,
                         compassEnabled: true,
-                        touchPoiEnabled: _pickMode,
-                        onTap: _pickMode
-                            ? (point) {
-                                _handleAmapTap(point);
-                              }
-                            : null,
-                        onPoiTouched: _pickMode
-                            ? (poi) => _handleAmapPoiTouched(poi)
-                            : null,
+                        // Always attach non-null gesture handlers and gate
+                        // inside the callback. The native platform view caches
+                        // the first set of handlers it sees; if onTap starts
+                        // as null (pickMode off) it never reliably re-attaches
+                        // when pickMode flips on. Tab-switching destroys the
+                        // platform view via the widget.active gate, which is
+                        // why round-tripping to Itinerary "fixed" the bug.
+                        touchPoiEnabled: true,
+                        onTap: (point) {
+                          if (_pickMode) _handleAmapTap(point);
+                        },
+                        onPoiTouched: (poi) {
+                          if (_pickMode) _handleAmapPoiTouched(poi);
+                        },
                         markers: _markers,
                         polylines: _polylines,
                       ),

@@ -95,6 +95,49 @@ void main() {
     );
   });
 
+  testWidgets(
+    'citywalk copy backfills the day city when it is a placeholder',
+    (tester) async {
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+      final backend = _FakeBackend(
+        days: [
+          ItineraryDay(
+            id: 'day-empty-city',
+            title: 'Day 1',
+            date: _testIsoDate(tomorrow),
+            // Placeholder city — the same value _ensureDefaultDay would
+            // create when there's no resolved city yet.
+            city: 'Current city',
+            reminder: '',
+            items: [],
+          ),
+        ],
+      );
+      await _pumpLoggedInApp(tester, backend);
+
+      await tester.tap(find.text('Hot Citywalks'));
+      await tester.pumpAndSettle();
+
+      final copyButton = find.byKey(
+        const ValueKey('copy-citywalk-citywalk-chengdu-kuanzhai'),
+      );
+      await tester.ensureVisible(copyButton.first);
+      await tester.pumpAndSettle();
+      await tester.tap(copyButton.first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Copy to selected day'));
+      await tester.pumpAndSettle();
+
+      expect(
+        backend.updatedDayPatches,
+        hasLength(1),
+        reason: 'CityWalk copy should backfill the day city.',
+      );
+      expect(backend.updatedDayPatches.single.dayId, 'day-empty-city');
+      expect(backend.updatedDayPatches.single.city, '成都');
+    },
+  );
+
   testWidgets('home hero selects nearest unfinished itinerary item', (
     tester,
   ) async {

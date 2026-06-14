@@ -265,6 +265,7 @@ class TravelSearchResult {
     required this.sourceType,
     required this.point,
     this.imageUrl,
+    this.city,
   });
 
   final String id;
@@ -275,6 +276,10 @@ class TravelSearchResult {
   final String sourceType;
   final LatLng point;
   final String? imageUrl;
+  // City returned by the backend (already populated for seed and AMap POI
+  // rows). Used to backfill an itinerary day's "Current city" placeholder
+  // when the user adds this result to that day.
+  final String? city;
 }
 
 class SavedTrip {
@@ -1002,6 +1007,7 @@ TravelSearchResult _searchResultFromJson(Map<String, Object?> json) {
     sourceType: json['type']?.toString() ?? 'place',
     point: LatLng(lat, lng),
     imageUrl: json['imageUrl']?.toString(),
+    city: json['city']?.toString(),
   );
 }
 
@@ -2223,6 +2229,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
             'Visit ${result.name}',
             result.intro,
             point: result.point,
+            city: result.city,
           ),
           onCopyTemplate: _copyCityWalkTemplate,
           onFeaturedScenicSelected: _handleFeaturedScenicSpot,
@@ -2239,6 +2246,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
             'Visit ${result.name}',
             result.intro,
             point: result.point,
+            city: result.city,
           ),
           onRetry: () => _loadBackendData(),
         ),
@@ -2291,11 +2299,15 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       return;
     }
     final result = _bestSearchMatch(results, spot.query);
+    final resolvedCity = (result.city ?? '').trim().isNotEmpty
+        ? result.city
+        : spot.city;
     await _showAddPlaceToDaySheet(
       result.name,
       'Visit ${result.name}',
       result.intro.trim().isEmpty ? spot.summary : result.intro,
       point: result.point,
+      city: resolvedCity,
     );
   }
 
@@ -2463,6 +2475,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     String activity,
     String note, {
     LatLng? point,
+    String? city,
   }) async {
     if (!await _ensureDefaultDay()) {
       return;
@@ -2472,6 +2485,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       activity: activity,
       note: note,
       point: point,
+      city: city,
     );
   }
 
@@ -2547,7 +2561,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     required String activity,
     required String note,
     LatLng? point,
+    String? city,
   }) {
+    final resolvedCity = city?.trim() ?? '';
     if (_repository.itineraryDays.isEmpty) {
       _toast('Create a day before adding itinerary items.');
       return;
@@ -2635,6 +2651,17 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                               point: point,
                             );
                             if (created == null || !context.mounted) {
+                              return;
+                            }
+                            // Same backfill as the map-pick path: if the
+                            // source carries a city and the target day still
+                            // shows the placeholder, persist the real city so
+                            // Recommend for You has something to anchor on.
+                            await _backfillDayCityIfPlaceholder(
+                              selectedDayIndex,
+                              resolvedCity,
+                            );
+                            if (!context.mounted) {
                               return;
                             }
                             Navigator.pop(context);
@@ -2780,6 +2807,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       }
     }
     if (copied > 0) {
+      // System CityWalks are anchored to a specific city; backfill the
+      // target day's city if it's still a placeholder so Recommend for You
+      // can use it after copying.
+      await _backfillDayCityIfPlaceholder(dayIndex, template.city);
       _toast('Copied ${template.title} to your itinerary');
     }
   }

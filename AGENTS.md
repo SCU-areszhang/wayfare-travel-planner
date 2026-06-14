@@ -41,6 +41,8 @@ Current acceptance notes:
   date-based route card per day with ordered stops inside the card.
 - Itinerary stop moving must remain explicit and discoverable; keep both drag
   reorder affordance and target-date move flow.
+- Saved trip cards must stay readable on narrow Android widths by stacking
+  metadata and actions vertically instead of crowding trailing controls.
 - Remove redundant manual Save Plan action because itinerary mutations already
   persist to the backend/Saved flow.
 

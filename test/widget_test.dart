@@ -258,12 +258,39 @@ void main() {
     expect(find.byTooltip('Remove'), findsWidgets);
   });
 
+  testWidgets('saved page stacks card actions on narrow Android widths', (
+    tester,
+  ) async {
+    final backend = _FakeBackend(
+      savedTrips: const [
+        SavedTrip(
+          id: 'saved-mobile-plan',
+          destination: 'A Very Detailed Chengdu Food And Culture Plan',
+          dateRange: '2026-06-14 - 2026-06-21',
+          itemCount: '12 stops',
+          lastUpdated: 'Saved today',
+          folder: 'Itineraries',
+          upcoming: true,
+          type: 'itinerary',
+          refId: 'trip-mobile',
+        ),
+      ],
+    );
+    await _pumpLoggedInApp(tester, backend, viewSize: const Size(430, 900));
+
+    await _tapBottomDestination(tester, 'Saved');
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('Switch'), findsOneWidget);
+    expect(find.text('Details'), findsOneWidget);
+    expect(find.text('Remove'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('itinerary actions omit saved chip and move across dates', (
     tester,
   ) async {
-    final firstDate = _testIsoDate(
-      DateTime.now().add(const Duration(days: 1)),
-    );
+    final firstDate = _testIsoDate(DateTime.now().add(const Duration(days: 1)));
     final secondDate = _testIsoDate(
       DateTime.now().add(const Duration(days: 2)),
     );
@@ -379,10 +406,11 @@ void main() {
 
 Future<void> _pumpLoggedOutApp(
   WidgetTester tester,
-  _FakeBackend backend,
-) async {
+  _FakeBackend backend, {
+  Size viewSize = const Size(1000, 1200),
+}) async {
   SharedPreferences.setMockInitialValues({});
-  tester.view.physicalSize = const Size(1000, 1200);
+  tester.view.physicalSize = viewSize;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -390,8 +418,12 @@ Future<void> _pumpLoggedOutApp(
   await tester.pumpAndSettle();
 }
 
-Future<void> _pumpLoggedInApp(WidgetTester tester, _FakeBackend backend) async {
-  await _pumpLoggedOutApp(tester, backend);
+Future<void> _pumpLoggedInApp(
+  WidgetTester tester,
+  _FakeBackend backend, {
+  Size viewSize = const Size(1000, 1200),
+}) async {
+  await _pumpLoggedOutApp(tester, backend, viewSize: viewSize);
   await _login(tester);
 }
 
@@ -408,6 +440,13 @@ Future<void> _tapRailDestination(WidgetTester tester, String label) async {
       of: find.byType(NavigationRail),
       matching: find.text(label),
     ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _tapBottomDestination(WidgetTester tester, String label) async {
+  await tester.tap(
+    find.descendant(of: find.byType(NavigationBar), matching: find.text(label)),
   );
   await tester.pumpAndSettle();
 }
@@ -639,11 +678,7 @@ class _FakeBackend implements WayfareBackend {
   }) async {
     _itemCounter += 1;
     updateItemCalls.add(
-      _UpdateItemCall(
-        dayId: dayId,
-        itemId: itemId,
-        targetDayId: targetDayId,
-      ),
+      _UpdateItemCall(dayId: dayId, itemId: itemId, targetDayId: targetDayId),
     );
     return ItineraryItem(
       id: 'item-updated-$_itemCounter',

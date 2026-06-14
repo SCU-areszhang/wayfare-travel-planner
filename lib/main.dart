@@ -6906,97 +6906,316 @@ class _SavedTripCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final kindLabel = _savedTripTypeLabel(trip);
+    final cardColor = selected
+        ? scheme.secondaryContainer
+        : scheme.surfaceContainerLow;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 430) {
+          return _buildCompactCard(context, scheme, kindLabel, cardColor);
+        }
+        return Card.filled(
+          color: cardColor,
+          child: ListTile(
+            onTap: onSelect,
+            contentPadding: const EdgeInsetsDirectional.fromSTEB(16, 8, 8, 8),
+            leading: _buildIcon(scheme),
+            title: Text(
+              trip.destination,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: selected ? scheme.onSecondaryContainer : null,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${trip.dateRange} - ${trip.itemCount}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: selected
+                          ? scheme.onSecondaryContainer
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _SavedTripLabels(
+                    kindLabel: kindLabel,
+                    selected: selected,
+                    folder: trip.folder,
+                  ),
+                ],
+              ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (trip.isItinerary)
+                  IconButton.filledTonal(
+                    tooltip: selected
+                        ? 'Current itinerary'
+                        : 'Switch itinerary',
+                    onPressed: selected ? null : onSelect,
+                    icon: Icon(
+                      selected ? Icons.check_circle : Icons.swap_horiz_outlined,
+                    ),
+                  )
+                else
+                  IconButton.filledTonal(
+                    tooltip: 'Add to itinerary',
+                    onPressed: onAdd,
+                    icon: const Icon(Icons.add),
+                  ),
+                IconButton(
+                  tooltip: 'Details',
+                  onPressed: onDetail,
+                  icon: const Icon(Icons.info_outline),
+                ),
+                IconButton(
+                  tooltip: 'Remove',
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCompactCard(
+    BuildContext context,
+    ColorScheme scheme,
+    String kindLabel,
+    Color cardColor,
+  ) {
+    final metaColor = selected
+        ? scheme.onSecondaryContainer.withValues(alpha: 0.78)
+        : scheme.onSurfaceVariant;
     return Card.filled(
-      color: selected ? scheme.secondaryContainer : scheme.surfaceContainerLow,
-      child: ListTile(
+      color: cardColor,
+      child: InkWell(
         onTap: onSelect,
-        contentPadding: const EdgeInsetsDirectional.fromSTEB(16, 8, 8, 8),
-        leading: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: trip.isItinerary
-                ? scheme.primaryContainer
-                : scheme.tertiaryContainer,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(
-            _savedTripIcon(trip),
-            color: trip.isItinerary
-                ? scheme.onPrimaryContainer
-                : scheme.onTertiaryContainer,
-            size: 22,
-          ),
-        ),
-        title: Text(
-          trip.destination,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: selected ? scheme.onSecondaryContainer : null,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${trip.dateRange} - ${trip.itemCount}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: selected
-                      ? scheme.onSecondaryContainer
-                      : scheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _CompactLabel(text: kindLabel),
-                  if (selected) const _CompactLabel(text: 'Current'),
-                  if (trip.folder.trim().isNotEmpty)
-                    _CompactLabel(text: trip.folder),
+                  _buildIcon(scheme),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          trip.destination,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                color: selected
+                                    ? scheme.onSecondaryContainer
+                                    : null,
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${trip.dateRange} - ${trip.itemCount}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(color: metaColor),
+                        ),
+                        const SizedBox(height: 10),
+                        _SavedTripLabels(
+                          kindLabel: kindLabel,
+                          selected: selected,
+                          folder: trip.folder,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Divider(
+                color: selected
+                    ? scheme.onSecondaryContainer.withValues(alpha: 0.16)
+                    : scheme.outlineVariant,
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SavedCardActionButton(
+                      icon: trip.isItinerary
+                          ? selected
+                                ? Icons.check_circle
+                                : Icons.swap_horiz_outlined
+                          : Icons.add,
+                      label: trip.isItinerary
+                          ? selected
+                                ? 'Current'
+                                : 'Switch'
+                          : 'Add',
+                      tooltip: trip.isItinerary
+                          ? selected
+                                ? 'Current itinerary'
+                                : 'Switch itinerary'
+                          : 'Add to itinerary',
+                      onPressed: trip.isItinerary
+                          ? selected
+                                ? null
+                                : onSelect
+                          : onAdd,
+                      emphasized: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _SavedCardActionButton(
+                      icon: Icons.info_outline,
+                      label: 'Details',
+                      tooltip: 'Details',
+                      onPressed: onDetail,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _SavedCardActionButton(
+                      icon: Icons.delete_outline,
+                      label: 'Remove',
+                      tooltip: 'Remove',
+                      onPressed: onRemove,
+                      destructive: true,
+                    ),
+                  ),
                 ],
               ),
             ],
           ),
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (trip.isItinerary)
-              IconButton.filledTonal(
-                tooltip: selected ? 'Current itinerary' : 'Switch itinerary',
-                onPressed: selected ? null : onSelect,
-                icon: Icon(
-                  selected ? Icons.check_circle : Icons.swap_horiz_outlined,
-                ),
-              )
-            else
-              IconButton.filledTonal(
-                tooltip: 'Add to itinerary',
-                onPressed: onAdd,
-                icon: const Icon(Icons.add),
-              ),
-            IconButton(
-              tooltip: 'Details',
-              onPressed: onDetail,
-              icon: const Icon(Icons.info_outline),
-            ),
-            IconButton(
-              tooltip: 'Remove',
-              onPressed: onRemove,
-              icon: const Icon(Icons.delete_outline),
-            ),
-          ],
-        ),
       ),
     );
+  }
+
+  Widget _buildIcon(ColorScheme scheme) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: trip.isItinerary
+            ? scheme.primaryContainer
+            : scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(
+        _savedTripIcon(trip),
+        color: trip.isItinerary
+            ? scheme.onPrimaryContainer
+            : scheme.onTertiaryContainer,
+        size: 22,
+      ),
+    );
+  }
+}
+
+class _SavedTripLabels extends StatelessWidget {
+  const _SavedTripLabels({
+    required this.kindLabel,
+    required this.selected,
+    required this.folder,
+  });
+
+  final String kindLabel;
+  final bool selected;
+  final String folder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        _CompactLabel(text: kindLabel),
+        if (selected) const _CompactLabel(text: 'Current'),
+        if (folder.trim().isNotEmpty) _CompactLabel(text: folder),
+      ],
+    );
+  }
+}
+
+class _SavedCardActionButton extends StatelessWidget {
+  const _SavedCardActionButton({
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+    this.emphasized = false,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final bool emphasized;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final foregroundColor = destructive ? scheme.error : null;
+    final child = FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: 6),
+          Text(label, maxLines: 1),
+        ],
+      ),
+    );
+    final buttonStyle = ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(Size(0, 44)),
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 8),
+      ),
+      foregroundColor: foregroundColor == null
+          ? null
+          : WidgetStatePropertyAll(foregroundColor),
+      side: destructive
+          ? WidgetStatePropertyAll(
+              BorderSide(color: scheme.error.withValues(alpha: 0.48)),
+            )
+          : null,
+    );
+    final button = emphasized
+        ? FilledButton.tonal(
+            onPressed: onPressed,
+            style: buttonStyle,
+            child: child,
+          )
+        : OutlinedButton(
+            onPressed: onPressed,
+            style: buttonStyle,
+            child: child,
+          );
+    return Tooltip(message: tooltip, child: button);
   }
 }
 

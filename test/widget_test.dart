@@ -458,6 +458,12 @@ String _testIsoDate(DateTime value) {
   return '$year-$month-$day';
 }
 
+class _DayPatch {
+  const _DayPatch({required this.dayId, this.city});
+  final String dayId;
+  final String? city;
+}
+
 class _AddItemCall {
   const _AddItemCall({required this.dayId, required this.place});
 
@@ -488,6 +494,7 @@ class _FakeBackend implements WayfareBackend {
   final updateItemCalls = <_UpdateItemCall>[];
   final searchQueries = <String>[];
   final deletedDayIds = <String>[];
+  final updatedDayPatches = <_DayPatch>[];
   final createdItineraryTitles = <String>[];
   String? requestedActiveItineraryId;
   var _itemCounter = 0;
@@ -701,6 +708,26 @@ class _FakeBackend implements WayfareBackend {
   @override
   Future<void> deleteDay(String itineraryId, String dayId) async {
     deletedDayIds.add(dayId);
+  }
+
+  @override
+  Future<ItineraryDay> updateDay(
+    String itineraryId,
+    String dayId, {
+    String? title,
+    String? city,
+    String? reminder,
+  }) async {
+    for (final day in days) {
+      if (day.id == dayId) {
+        if (title != null) day.title = title;
+        if (city != null) day.city = city;
+        if (reminder != null) day.reminder = reminder;
+        updatedDayPatches.add(_DayPatch(dayId: dayId, city: city));
+        return day;
+      }
+    }
+    throw StateError('Unknown day $dayId');
   }
 
   @override

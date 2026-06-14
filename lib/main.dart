@@ -513,6 +513,15 @@ abstract interface class WayfareBackend {
     required String city,
     required String reminder,
   });
+  // Patch one or more of title/city/reminder on an existing day. Null fields
+  // are not sent (and therefore not changed) server-side.
+  Future<ItineraryDay> updateDay(
+    String itineraryId,
+    String dayId, {
+    String? title,
+    String? city,
+    String? reminder,
+  });
   Future<ItineraryItem> addItem(
     String itineraryId,
     String dayId, {
@@ -786,6 +795,26 @@ class WayfareApiClient implements WayfareBackend {
   @override
   Future<void> deleteDay(String itineraryId, String dayId) async {
     await _delete('/itineraries/$itineraryId/days/$dayId');
+  }
+
+  @override
+  Future<ItineraryDay> updateDay(
+    String itineraryId,
+    String dayId, {
+    String? title,
+    String? city,
+    String? reminder,
+  }) async {
+    final patch = <String, Object?>{
+      if (title != null) 'title': title,
+      if (city != null) 'city': city,
+      if (reminder != null) 'reminder': reminder,
+    };
+    final body = await _patch(
+      '/itineraries/$itineraryId/days/$dayId',
+      patch,
+    );
+    return _dayFromJson(_asMap(body['item']));
   }
 
   @override
@@ -2446,6 +2475,45 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     );
   }
 
+  // True for any value users will want overwritten by a real reverse-geocoded
+  // city — the hardcoded placeholder, blanks, or the backend's TBD default.
+  static bool _isPlaceholderCity(String city) {
+    final trimmed = city.trim();
+    return trimmed.isEmpty ||
+        trimmed == 'Current city' ||
+        trimmed == 'TBD';
+  }
+
+  // After a map pick lands in a day, copy the AMap-resolved city into that
+  // day's `city` field if it's still a placeholder. The backend persists the
+  // patch; the local repository is updated in place so Recommend for You can
+  // start using the real city immediately.
+  Future<void> _backfillDayCityIfPlaceholder(int dayIndex, String city) async {
+    if (city.isEmpty) {
+      return;
+    }
+    if (dayIndex < 0 || dayIndex >= _repository.itineraryDays.length) {
+      return;
+    }
+    final day = _repository.itineraryDays[dayIndex];
+    if (!_isPlaceholderCity(day.city)) {
+      return;
+    }
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      return;
+    }
+    final patched = await _runBackendMutation(
+      () => widget.backend.updateDay(itineraryId, day.id, city: city),
+    );
+    if (patched == null || !mounted) {
+      return;
+    }
+    setState(() {
+      day.city = patched.city;
+    });
+  }
+
   Future<bool> _ensureDefaultDay() async {
     if (_repository.itineraryDays.isNotEmpty) {
       return true;
@@ -3252,6 +3320,17 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                                     point: point,
                                   );
                                   if (created == null || !context.mounted) {
+                                    return;
+                                  }
+                                  // After the stop is saved, also fill the
+                                  // day's "current city" with the AMap-
+                                  // resolved city so Recommend for You has
+                                  // something to anchor on.
+                                  await _backfillDayCityIfPlaceholder(
+                                    selectedDayIndex,
+                                    pickedCity,
+                                  );
+                                  if (!context.mounted) {
                                     return;
                                   }
                                   Navigator.pop(context, true);

@@ -333,6 +333,26 @@ void main() {
     expect(
         invalidReorder.json['error'], 'itemIds must not contain duplicates.');
 
+    final emptyPatch = await server.post(
+      '/itineraries/$tripId/days/$dayId',
+      <String, Object?>{},
+      token: token,
+      method: 'PATCH',
+    );
+    expect(emptyPatch.statusCode, HttpStatus.badRequest);
+    expect(emptyPatch.json['error'], contains('title, city, or reminder'));
+
+    final patchedDay = await server.post(
+      '/itineraries/$tripId/days/$dayId',
+      {'city': 'Suzhou'},
+      token: token,
+      method: 'PATCH',
+    );
+    expect(patchedDay.statusCode, HttpStatus.ok);
+    final patchedItem = patchedDay.json['item'] as Map<String, Object?>;
+    expect(patchedItem['city'], 'Suzhou');
+    expect(patchedItem['title'], 'Day 1');
+
     final deletedDay = await server.post(
       '/itineraries/$tripId/days/$dayId',
       <String, Object?>{},

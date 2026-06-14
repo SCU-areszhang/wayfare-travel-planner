@@ -409,6 +409,16 @@ Future<void> _handleItinerary(
     return _json(request, {'deleted': path[3]});
   }
 
+  if (request.method == 'PATCH' &&
+      path.length == 4 &&
+      path[2] == 'days') {
+    final body = await _body(request);
+    return _json(
+      request,
+      {'item': store.updateDay(path[1], path[3], _validateUpdateDay(body))},
+    );
+  }
+
   if (request.method == 'POST' &&
       path.length == 5 &&
       path[2] == 'days' &&
@@ -1593,6 +1603,30 @@ class SqliteStore {
       'items': <Map<String, Object?>>[],
     };
     days.add(day);
+    trip['days'] = days;
+    trip['updatedAt'] = DateTime.now().toIso8601String();
+    _saveItinerary(trip);
+    return day;
+  }
+
+  // Updates one or more of: title, city, reminder. Leaves unspecified fields
+  // and the items list untouched.
+  Map<String, Object?> updateDay(
+    String itineraryId,
+    String dayId,
+    Map<String, Object?> patch,
+  ) {
+    final trip = itinerary(itineraryId);
+    if (trip == null) {
+      throw StateError('Itinerary not found');
+    }
+    final days = _days(trip);
+    final day = _dayById(days, dayId);
+    for (final key in const ['title', 'city', 'reminder']) {
+      if (patch.containsKey(key)) {
+        day[key] = patch[key];
+      }
+    }
     trip['days'] = days;
     trip['updatedAt'] = DateTime.now().toIso8601String();
     _saveItinerary(trip);
@@ -3209,6 +3243,9 @@ String _routeTemplate(String method, List<String> path) {
     if (path.length == 3 && path[2] == 'days') {
       return '/itineraries/:id/days';
     }
+    if (path.length == 4 && path[2] == 'days') {
+      return '/itineraries/:id/days/:dayId';
+    }
     if (path.length == 5 && path[2] == 'days' && path[4] == 'items') {
       return '/itineraries/:id/days/:dayId/items';
     }
@@ -3505,6 +3542,27 @@ Map<String, Object?> _validateAddDay(Map<String, Object?> body) {
     'city': _requiredText(body, 'city', maxLength: 80),
     'reminder': _optionalText(body, 'reminder', maxLength: 500) ?? '',
   };
+}
+
+// PATCH /days/:dayId accepts any subset of title/city/reminder. At least one
+// field must be present so the request isn't a silent no-op.
+Map<String, Object?> _validateUpdateDay(Map<String, Object?> body) {
+  final patch = <String, Object?>{};
+  if (body.containsKey('title')) {
+    patch['title'] = _requiredText(body, 'title', maxLength: 80);
+  }
+  if (body.containsKey('city')) {
+    patch['city'] = _requiredText(body, 'city', maxLength: 80);
+  }
+  if (body.containsKey('reminder')) {
+    patch['reminder'] = _optionalText(body, 'reminder', maxLength: 500) ?? '';
+  }
+  if (patch.isEmpty) {
+    throw FormatException(
+      'At least one of title, city, or reminder is required.',
+    );
+  }
+  return patch;
 }
 
 Map<String, Object?> _validateAddItem(Map<String, Object?> body) {

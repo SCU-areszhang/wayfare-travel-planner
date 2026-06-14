@@ -74,6 +74,29 @@ void main() {
         lessThanOrEqualTo(50));
   });
 
+  test('reverse-geocode validates coordinates and falls back without AMap key',
+      () async {
+    await server.close();
+    server = await _ServerHarness.start(environmentOverrides: {
+      'WAYFARE_DISABLE_AMAP_WEB_SERVICE': 'true',
+    });
+
+    final invalid = await server.get('/reverse-geocode?lat=91&lng=120');
+
+    expect(invalid.statusCode, HttpStatus.badRequest);
+    expect(invalid.json['error'], contains('lat must be a coordinate'));
+
+    final fallback = await server.get(
+      '/reverse-geocode?lat=30.2431&lng=120.1508&fallbackName=West%20Lake',
+    );
+
+    expect(fallback.statusCode, HttpStatus.ok);
+    final item = fallback.json['item'] as Map<String, Object?>;
+    expect(item['name'], 'West Lake');
+    expect(item['source'], 'coordinate');
+    expect(item['address'], contains('30.243100'));
+  });
+
   test('search returns selected 5A scenic spot seed data', () async {
     final response = await server.get('/search?q=黄山风景区&limit=5');
 

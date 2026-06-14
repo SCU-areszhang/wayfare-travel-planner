@@ -39,6 +39,12 @@ void main(List<String> args) async {
 }
 
 String? _loadAmapWebServiceKey() {
+  if (_environmentFlagEnabled(
+    Platform.environment,
+    'WAYFARE_DISABLE_AMAP_WEB_SERVICE',
+  )) {
+    return null;
+  }
   final envKey = Platform.environment['AMAP_WEB_SERVICE_KEY']?.trim();
   if (envKey != null && envKey.isNotEmpty) {
     return envKey;
@@ -250,6 +256,18 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       final query = request.uri.queryParameters['q'] ?? '';
       final limit = _queryLimit(request.uri.queryParameters['limit']);
       return _json(request, {'items': await store.search(query, limit: limit)});
+    }
+
+    if (method == 'GET' && _matches(path, ['reverse-geocode'])) {
+      final point = _queryPoint(request.uri.queryParameters);
+      final fallbackName = request.uri.queryParameters['fallbackName']?.trim();
+      return _json(request, {
+        'item': await store.reverseGeocode(
+          lat: point['lat']!,
+          lng: point['lng']!,
+          fallbackName: fallbackName,
+        ),
+      });
     }
 
     if (method == 'GET' && _matches(path, ['map', 'places'])) {
@@ -539,7 +557,9 @@ class RateLimiter {
           id: 'search',
           limit: searchLimit,
           matches: (method, path) =>
-              method == 'GET' && _matches(path, ['search']),
+              method == 'GET' &&
+              (_matches(path, ['search']) ||
+                  _matches(path, ['reverse-geocode'])),
         ),
         RateLimitRule(
           id: 'write',
@@ -1191,6 +1211,87 @@ class SqliteStore {
       return _normalizeSearchItems(amapItems);
     }
     return _normalizeSearchItems(_searchLocal(query, limit: limit));
+  }
+
+  Future<Map<String, Object?>> reverseGeocode({
+    required double lat,
+    required double lng,
+    String? fallbackName,
+  }) async {
+    final fallback = _reverseGeocodeFallback(
+      lat: lat,
+      lng: lng,
+      fallbackName: fallbackName,
+    );
+    final key = (amapWebServiceKey?.trim().isNotEmpty == true)
+        ? amapWebServiceKey!.trim()
+        : Platform.environment['AMAP_WEB_SERVICE_KEY']?.trim();
+    if (key == null || key.isEmpty) {
+      return fallback;
+    }
+
+    final uri = Uri.https('restapi.amap.com', '/v3/geocode/regeo', {
+      'key': key,
+      'location': '${lng.toStringAsFixed(7)},${lat.toStringAsFixed(7)}',
+      'radius': '300',
+      'extensions': 'all',
+      'output': 'json',
+    });
+
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 8);
+      try {
+        final request = await client.getUrl(uri);
+        final response = await request.close().timeout(
+              const Duration(seconds: 10),
+            );
+        if (response.statusCode != HttpStatus.ok) {
+          return fallback;
+        }
+        final raw = await utf8.decoder.bind(response).join();
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map || decoded['status']?.toString() != '1') {
+          return fallback;
+        }
+        final regeocode = decoded['regeocode'];
+        if (regeocode is! Map) {
+          return fallback;
+        }
+        final pois = regeocode['pois'];
+        final aois = regeocode['aois'];
+        final nearest = _firstAmapPlace(pois) ?? _firstAmapPlace(aois);
+        final formattedAddress = _amapField(
+          regeocode['formatted_address'] ?? regeocode['formattedAddress'],
+        );
+        final component = regeocode['addressComponent'];
+        final componentMap = component is Map
+            ? component.map((key, value) => MapEntry(key, value))
+            : const <Object?, Object?>{};
+        final city = _amapField(componentMap['city']).trim().isNotEmpty
+            ? _amapField(componentMap['city'])
+            : _amapField(componentMap['province']);
+        final nearestName = nearest == null ? '' : _amapField(nearest['name']);
+        final type = nearest == null ? '' : _amapField(nearest['type']);
+        return {
+          'name': _firstNonEmpty([
+            nearestName,
+            formattedAddress,
+            fallback['name']?.toString() ?? '',
+          ]),
+          'address': formattedAddress,
+          'city': city,
+          'source': 'amap_regeo',
+          if (type.isNotEmpty) 'poiType': type,
+          'lat': lat,
+          'lng': lng,
+        };
+      } finally {
+        client.close(force: true);
+      }
+    } catch (_) {
+      return fallback;
+    }
   }
 
   List<Map<String, Object?>> _searchLocal(String query, {int limit = 20}) {
@@ -2878,6 +2979,44 @@ String _amapField(Object? value) {
   return value.toString();
 }
 
+Map<Object?, Object?>? _firstAmapPlace(Object? value) {
+  if (value is! List || value.isEmpty) {
+    return null;
+  }
+  for (final item in value) {
+    if (item is Map) {
+      return item.map((key, value) => MapEntry(key, value));
+    }
+  }
+  return null;
+}
+
+Map<String, Object?> _reverseGeocodeFallback({
+  required double lat,
+  required double lng,
+  String? fallbackName,
+}) {
+  final name = (fallbackName ?? '').trim();
+  return {
+    'name': name.isEmpty ? 'Selected map point' : name,
+    'address': 'Lat ${lat.toStringAsFixed(6)}, Lng ${lng.toStringAsFixed(6)}',
+    'city': '',
+    'source': 'coordinate',
+    'lat': lat,
+    'lng': lng,
+  };
+}
+
+String _firstNonEmpty(Iterable<String> values) {
+  for (final value in values) {
+    final text = value.trim();
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return '';
+}
+
 String? _amapPhotoUrl(Map<Object?, Object?> poi) {
   final photos = poi['photos'];
   if (photos is! List || photos.isEmpty) {
@@ -3053,6 +3192,9 @@ String _routeTemplate(String method, List<String> path) {
   }
   if (_matches(path, ['search'])) {
     return '/search';
+  }
+  if (_matches(path, ['reverse-geocode'])) {
+    return '/reverse-geocode';
   }
   if (path.length >= 2 && path.first == 'map' && path[1] == 'places') {
     return '/map/places';
@@ -3305,6 +3447,13 @@ int _queryLimit(String? raw) {
     return 50;
   }
   return parsed;
+}
+
+Map<String, double> _queryPoint(Map<String, String> query) {
+  return {
+    'lat': _coordinate(query['lat'], 'lat', min: -90, max: 90),
+    'lng': _coordinate(query['lng'], 'lng', min: -180, max: 180),
+  };
 }
 
 Map<String, Object?> _validateCreateItinerary(Map<String, Object?> body) {

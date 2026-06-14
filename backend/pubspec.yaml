@@ -10,3 +10,10 @@ dependencies:
   sqlite3: ^3.3.2
 dev_dependencies:
   test: ^1.31.1
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: system
+      name_windows: winsqlite3
+      name: sqlite3

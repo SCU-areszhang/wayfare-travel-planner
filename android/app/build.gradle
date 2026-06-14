@@ -59,6 +59,7 @@ android {
 
     buildTypes {
         release {
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             if (!hasReleaseSigning && releaseTaskRequested) {
                 throw new GradleException(
                     "Release signing is required. Set WAYFARE_ANDROID_KEYSTORE, " +

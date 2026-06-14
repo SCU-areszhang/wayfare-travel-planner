@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:amap_flutter_base/amap_flutter_base.dart' as amap_base;
 import 'package:amap_flutter_map/amap_flutter_map.dart' as amap_map;
@@ -17,6 +18,10 @@ import 'home_recommend_section.dart';
 import 'login_identifier_field_stub.dart'
     if (dart.library.html) 'login_identifier_field_web.dart';
 import 'scenic_spots_5a.dart';
+
+export 'amap_canvas_stub.dart'
+    if (dart.library.html) 'amap_canvas_web.dart'
+    show AmapPickResult;
 
 const _amapAndroidKey = String.fromEnvironment('AMAP_ANDROID_KEY');
 const _amapIosKey = String.fromEnvironment('AMAP_IOS_KEY');
@@ -478,7 +483,10 @@ class BackendLoginResult {
 
 abstract interface class WayfareBackend {
   void setSessionToken(String? token);
-  Future<BackendLoginResult> loginOrRegister(String identifier, String password);
+  Future<BackendLoginResult> loginOrRegister(
+    String identifier,
+    String password,
+  );
   Future<void> logout();
   Future<String> updateDisplayName(String displayName);
   Future<void> changePassword({
@@ -497,6 +505,7 @@ abstract interface class WayfareBackend {
     required String endDate,
   });
   Future<List<TravelSearchResult>> searchPlaces(String query);
+  Future<AmapPickResult> reverseGeocode(LatLng point, {String? fallbackName});
   Future<ItineraryDay> addDay(
     String itineraryId, {
     required String title,
@@ -681,6 +690,23 @@ class WayfareApiClient implements WayfareBackend {
   Future<List<TravelSearchResult>> searchPlaces(String query) async {
     final body = await _get('/search', query: {'q': query, 'limit': '20'});
     return _listOfMaps(body['items']).map(_searchResultFromJson).toList();
+  }
+
+  @override
+  Future<AmapPickResult> reverseGeocode(
+    LatLng point, {
+    String? fallbackName,
+  }) async {
+    final body = await _get(
+      '/reverse-geocode',
+      query: {
+        'lat': point.latitude.toStringAsFixed(7),
+        'lng': point.longitude.toStringAsFixed(7),
+        if (fallbackName?.trim().isNotEmpty == true)
+          'fallbackName': fallbackName!.trim(),
+      },
+    );
+    return _pickResultFromJson(_asMap(body['item']), fallbackPoint: point);
   }
 
   @override
@@ -947,6 +973,21 @@ TravelSearchResult _searchResultFromJson(Map<String, Object?> json) {
     sourceType: json['type']?.toString() ?? 'place',
     point: LatLng(lat, lng),
     imageUrl: json['imageUrl']?.toString(),
+  );
+}
+
+AmapPickResult _pickResultFromJson(
+  Map<String, Object?> json, {
+  required LatLng fallbackPoint,
+}) {
+  final lat = _doubleValue(json['lat']) ?? fallbackPoint.latitude;
+  final lng = _doubleValue(json['lng']) ?? fallbackPoint.longitude;
+  final name = json['name']?.toString().trim();
+  return AmapPickResult(
+    point: LatLng(lat, lng),
+    name: name == null || name.isEmpty ? 'Selected map point' : name,
+    address: json['address']?.toString(),
+    city: json['city']?.toString(),
   );
 }
 
@@ -2163,6 +2204,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           itineraryDays: _repository.itineraryDays,
           onMapPointPicked: _showMapPointAddSheet,
           onSearch: widget.backend.searchPlaces,
+          onReverseGeocode: widget.backend.reverseGeocode,
           onAddSearchResult: (result) => _showAddPlaceToDaySheet(
             result.name,
             'Visit ${result.name}',
@@ -2804,7 +2846,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 6),
-                  Text(item.place, style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    item.place,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
                     key: ValueKey(
@@ -4147,9 +4192,9 @@ class _AppHeader extends StatelessWidget {
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
         ),
       ],
     );
@@ -4476,6 +4521,7 @@ class _HomeScreenState extends State<_HomeScreen> {
         const _SectionHeader(title: 'Search Anything'),
         const SizedBox(height: 10),
         SearchBar(
+          key: const ValueKey('home-search-field'),
           controller: _searchController,
           leading: const Icon(Icons.search),
           hintText: 'Search scenic spots, cities, or attractions',
@@ -4510,7 +4556,8 @@ class _HomeScreenState extends State<_HomeScreen> {
             loading: _nearbyLoading,
             spots: _nearbySpots,
             onAdd: widget.onAddSearchResult,
-            searchResultBuilder: (result, onAdd) => _SearchResultRow(result: result, onAdd: onAdd),
+            searchResultBuilder: (result, onAdd) =>
+                _SearchResultRow(result: result, onAdd: onAdd),
           ),
           const SizedBox(height: 8),
         ],
@@ -4539,10 +4586,16 @@ class _HomeScreenState extends State<_HomeScreen> {
                 CityWalkTemplateCard(
                   template: template,
                   onCopy: () => widget.onCopyTemplate(template),
-                  metricPillBuilder: ({required IconData icon, required String label, bool filled = false}) =>
-                      _MetricPill(icon: icon, label: label, filled: filled),
-                  stopPreviewBuilder: ({required int index, required CityWalkStop stop}) =>
-                      _CityWalkStopPreview(index: index, stop: stop),
+                  metricPillBuilder:
+                      ({
+                        required IconData icon,
+                        required String label,
+                        bool filled = false,
+                      }) =>
+                          _MetricPill(icon: icon, label: label, filled: filled),
+                  stopPreviewBuilder:
+                      ({required int index, required CityWalkStop stop}) =>
+                          _CityWalkStopPreview(index: index, stop: stop),
                 ),
                 if (template != _cityWalkTemplates.last)
                   const SizedBox(height: 10),
@@ -5114,6 +5167,7 @@ class _ExploreScreen extends StatefulWidget {
     required this.itineraryDays,
     required this.onMapPointPicked,
     required this.onSearch,
+    required this.onReverseGeocode,
     required this.onAddSearchResult,
     required this.onRetry,
   });
@@ -5125,6 +5179,8 @@ class _ExploreScreen extends StatefulWidget {
   final List<ItineraryDay> itineraryDays;
   final Future<bool> Function(AmapPickResult pick) onMapPointPicked;
   final Future<List<TravelSearchResult>> Function(String query) onSearch;
+  final Future<AmapPickResult> Function(LatLng point, {String? fallbackName})
+  onReverseGeocode;
   final ValueChanged<TravelSearchResult> onAddSearchResult;
   final VoidCallback onRetry;
 
@@ -5140,12 +5196,21 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   var _searching = false;
   String? _searchError;
   var _pickMode = false;
+  var _resolvingPick = false;
   var _mapInputLocked = false;
   LatLng? _selectedMapPoint;
   AmapPickResult? _selectedMapPick;
+  amap_map.BitmapDescriptor? _nativeSelectedIcon;
+  double? _nativeSelectedIconScale;
   late final Set<String> _selectedCategories = _allPlaces
       .map((place) => place.category)
       .toSet();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _prepareNativeSelectedMarkerIcon();
+  }
 
   @override
   void dispose() {
@@ -5195,6 +5260,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.sizeOf(context).width < 480;
     final categories = _allPlaces.map((place) => place.category).toSet();
     _selectedCategories.addAll(
       categories.where((category) => category != 'Search'),
@@ -5220,7 +5286,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
         if (_searching) const LinearProgressIndicator(),
         if (_searched)
           ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 230),
+            constraints: BoxConstraints(maxHeight: compact ? 170 : 230),
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: _SearchResultsPanel(
@@ -5267,7 +5333,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
               padding: const EdgeInsets.only(left: 16),
               child: FilterChip(
                 avatar: const Icon(Icons.add_location_alt_outlined, size: 18),
-                label: const Text('Pick point mode'),
+                label: Text(compact ? 'Pick point' : 'Pick point mode'),
                 selected: _pickMode,
                 onSelected: (selected) {
                   setState(() => _pickMode = selected);
@@ -5293,8 +5359,9 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                           });
                         },
                         visualDensity: VisualDensity.comfortable,
-                        labelPadding:
-                            const EdgeInsets.symmetric(horizontal: 16),
+                        labelPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                        ),
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                       ),
                       const SizedBox(width: 8),
@@ -5307,9 +5374,9 @@ class _ExploreScreenState extends State<_ExploreScreen> {
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(compact ? 12 : 16),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(compact ? 18 : 16),
               child: Stack(
                 children: [
                   if (_canShowWebAmap)
@@ -5328,7 +5395,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                         _handleWebMapTap(pick);
                       },
                     )
-                  else if (_canShowNativeAmap)
+                  else if (_canShowNativeAmap && widget.active)
                     AbsorbPointer(
                       absorbing: _mapInputLocked,
                       child: amap_map.AMapWidget(
@@ -5347,17 +5414,23 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                         ),
                         scaleEnabled: true,
                         compassEnabled: true,
-                        touchPoiEnabled: true,
+                        touchPoiEnabled: _pickMode,
                         onTap: _pickMode
                             ? (point) {
                                 _handleAmapTap(point);
                               }
+                            : null,
+                        onPoiTouched: _pickMode
+                            ? (poi) => _handleAmapPoiTouched(poi)
                             : null,
                         markers: _markers,
                         polylines: _polylines,
                       ),
                     )
                   else
+                    // Avoid creating the Android/iOS platform view while this
+                    // IndexedStack child is hidden; native AMap initializes GL
+                    // resources as soon as the widget is built.
                     _AmapSetupPanel(
                       selectedPoint: _selectedMapPoint,
                       places: _visiblePlaces,
@@ -5370,6 +5443,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                     child: _MapStatusBar(
                       mode: _mode,
                       pickMode: _pickMode,
+                      resolvingPick: _resolvingPick,
                       visibleCount: _visiblePlaces.length,
                       onRetry: widget.onRetry,
                     ),
@@ -5385,14 +5459,25 @@ class _ExploreScreenState extends State<_ExploreScreen> {
                           padding: const EdgeInsets.all(12),
                           child: Row(
                             children: [
-                              Icon(
-                                Icons.add_location_alt_outlined,
-                                color: scheme.primary,
-                              ),
+                              if (_resolvingPick)
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  Icons.add_location_alt_outlined,
+                                  color: scheme.primary,
+                                ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  _canShowAmap
+                                  _resolvingPick
+                                      ? 'Resolving AMap place details...'
+                                      : _canShowAmap
                                       ? 'Tap the AMap canvas to select a destination point.'
                                       : _mapSetupMessage,
                                 ),
@@ -5548,16 +5633,25 @@ class _ExploreScreenState extends State<_ExploreScreen> {
     }
     final selected = _selectedMapPoint;
     if (selected != null) {
+      final selectedPick = _selectedMapPick;
       markers.add(
         amap_map.Marker(
           position: _toAmapLatLng(selected),
-          icon: amap_map.BitmapDescriptor.defaultMarkerWithHue(
-            amap_map.BitmapDescriptor.hueRose,
-          ),
+          icon:
+              _nativeSelectedIcon ??
+              amap_map.BitmapDescriptor.defaultMarkerWithHue(
+                amap_map.BitmapDescriptor.hueRose,
+              ),
+          anchor: _nativeSelectedIcon == null
+              ? const Offset(0.5, 1.0)
+              : const Offset(0.125, 0.5),
           draggable: true,
-          infoWindow: const amap_map.InfoWindow(
-            title: 'Selected point',
-            snippet: 'Drag or tap again to adjust before adding.',
+          zIndex: 120,
+          infoWindow: amap_map.InfoWindow(
+            title: selectedPick?.name ?? 'Selected point',
+            snippet:
+                selectedPick?.address ??
+                'Drag or tap again to adjust before adding.',
           ),
           onDragEnd: (_, position) {
             _handleAmapTap(position);
@@ -5589,10 +5683,141 @@ class _ExploreScreenState extends State<_ExploreScreen> {
     return lines;
   }
 
-  void _handleAmapTap(amap_base.LatLng point) {
+  Future<void> _prepareNativeSelectedMarkerIcon() async {
+    if (!_canShowNativeAmap) {
+      return;
+    }
+    final scale = MediaQuery.devicePixelRatioOf(context);
+    if (_nativeSelectedIcon != null && _nativeSelectedIconScale == scale) {
+      return;
+    }
+    final bytes = await _buildNativeSelectedMarkerIcon(scale);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _nativeSelectedIcon = amap_map.BitmapDescriptor.fromBytes(bytes);
+      _nativeSelectedIconScale = scale;
+    });
+  }
+
+  Future<Uint8List> _buildNativeSelectedMarkerIcon(double scale) async {
+    const width = 112.0;
+    const height = 36.0;
+    const selectedColor = Color(0xFFC026D3);
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)..scale(scale);
+
+    final shadowPaint = ui.Paint()
+      ..color = Colors.black.withValues(alpha: 0.16)
+      ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 4);
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(
+        const ui.Rect.fromLTWH(26, 5, 82, 26),
+        const ui.Radius.circular(13),
+      ),
+      shadowPaint,
+    );
+    canvas.drawCircle(const ui.Offset(14, 18), 13, shadowPaint);
+
+    final pillPaint = ui.Paint()..color = Colors.white.withValues(alpha: 0.96);
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(
+        const ui.Rect.fromLTWH(27, 4, 80, 26),
+        const ui.Radius.circular(13),
+      ),
+      pillPaint,
+    );
+    final outlinePaint = ui.Paint()
+      ..color = const Color(0x1F0F172A)
+      ..style = ui.PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(
+        const ui.Rect.fromLTWH(27, 4, 80, 26),
+        const ui.Radius.circular(13),
+      ),
+      outlinePaint,
+    );
+    canvas.drawCircle(
+      const ui.Offset(14, 18),
+      12,
+      ui.Paint()..color = Colors.white,
+    );
+    canvas.drawCircle(
+      const ui.Offset(14, 18),
+      9,
+      ui.Paint()..color = selectedColor,
+    );
+
+    final label = TextPainter(
+      text: const TextSpan(
+        text: 'Selected',
+        style: TextStyle(
+          color: Color(0xFF172033),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      maxLines: 1,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: 68);
+    label.paint(canvas, const ui.Offset(38, 9));
+
+    final image = await recorder.endRecording().toImage(
+      (width * scale).round(),
+      (height * scale).round(),
+    );
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData!.buffer.asUint8List();
+  }
+
+  String _fallbackPickName(String? fallbackName) {
+    final text = fallbackName?.trim() ?? '';
+    return text.isEmpty ? 'Selected map point' : text;
+  }
+
+  Future<void> _handleAmapTap(
+    amap_base.LatLng point, {
+    String? fallbackName,
+  }) async {
+    if (_resolvingPick || _mapInputLocked) {
+      return;
+    }
     final selected = LatLng(point.latitude, point.longitude);
-    final pick = AmapPickResult(point: selected, name: 'Selected map point');
+    final fallback = AmapPickResult(
+      point: selected,
+      name: _fallbackPickName(fallbackName),
+      address:
+          'Lat ${selected.latitude.toStringAsFixed(6)}, Lng ${selected.longitude.toStringAsFixed(6)}',
+    );
+    setState(() {
+      _selectedMapPick = fallback;
+      _selectedMapPoint = selected;
+      _resolvingPick = true;
+    });
+    AmapPickResult pick;
+    try {
+      pick = await widget.onReverseGeocode(
+        selected,
+        fallbackName: fallbackName,
+      );
+    } catch (_) {
+      pick = fallback;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() => _resolvingPick = false);
     _openMapPickSheet(pick);
+  }
+
+  void _handleAmapPoiTouched(amap_base.AMapPoi poi) {
+    final point = poi.latLng;
+    if (point == null) {
+      return;
+    }
+    _handleAmapTap(point, fallbackName: poi.name);
   }
 
   void _handleWebMapTap(AmapPickResult pick) {
@@ -5627,6 +5852,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
     setState(() {
       _selectedMapPick = null;
       _selectedMapPoint = null;
+      _resolvingPick = false;
       _mapInputLocked = false;
     });
   }
@@ -5876,12 +6102,14 @@ class _MapStatusBar extends StatelessWidget {
   const _MapStatusBar({
     required this.mode,
     required this.pickMode,
+    required this.resolvingPick,
     required this.visibleCount,
     required this.onRetry,
   });
 
   final _MapMode mode;
   final bool pickMode;
+  final bool resolvingPick;
   final int visibleCount;
   final VoidCallback onRetry;
 
@@ -5902,7 +6130,9 @@ class _MapStatusBar extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                pickMode
+                resolvingPick
+                    ? 'Resolving AMap place details...'
+                    : pickMode
                     ? 'AMap point-pick mode | tap map to add itinerary'
                     : mode == _MapMode.explore
                     ? 'AMap exploration | drag and zoom normally'
@@ -6093,10 +6323,12 @@ class _ItineraryDayRouteCard extends StatelessWidget {
     // Alternate consecutive days between Monet primary and secondary roles so
     // adjacent date cards are visually distinct.
     final usePrimary = dayIndex.isEven;
-    final container =
-        usePrimary ? scheme.primaryContainer : scheme.secondaryContainer;
-    final onContainer =
-        usePrimary ? scheme.onPrimaryContainer : scheme.onSecondaryContainer;
+    final container = usePrimary
+        ? scheme.primaryContainer
+        : scheme.secondaryContainer;
+    final onContainer = usePrimary
+        ? scheme.onPrimaryContainer
+        : scheme.onSecondaryContainer;
     return Card.filled(
       color: container.withValues(alpha: 0.34),
       child: Padding(
@@ -6558,13 +6790,23 @@ class _SavedWorkspaceSummary extends StatelessWidget {
                 value: '$total',
                 label: 'Saved',
               ),
-              VerticalDivider(width: 1, indent: 6, endIndent: 6, color: divider),
+              VerticalDivider(
+                width: 1,
+                indent: 6,
+                endIndent: 6,
+                color: divider,
+              ),
               _SavedMetric(
                 icon: Icons.route_outlined,
                 value: '$itineraries',
                 label: 'Plans',
               ),
-              VerticalDivider(width: 1, indent: 6, endIndent: 6, color: divider),
+              VerticalDivider(
+                width: 1,
+                indent: 6,
+                endIndent: 6,
+                color: divider,
+              ),
               _SavedMetric(
                 icon: Icons.folder_outlined,
                 value: '$folders',

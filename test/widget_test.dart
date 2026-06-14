@@ -570,6 +570,20 @@ class _FakeBackend implements WayfareBackend {
   }
 
   @override
+  Future<AmapPickResult> reverseGeocode(
+    LatLng point, {
+    String? fallbackName,
+  }) async {
+    final name = fallbackName?.trim();
+    return AmapPickResult(
+      point: point,
+      name: name == null || name.isEmpty ? 'Selected map point' : name,
+      address:
+          'Lat ${point.latitude.toStringAsFixed(6)}, Lng ${point.longitude.toStringAsFixed(6)}',
+    );
+  }
+
+  @override
   Future<ItineraryDay> addDay(
     String itineraryId, {
     required String title,

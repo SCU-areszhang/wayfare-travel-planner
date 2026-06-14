@@ -5452,8 +5452,13 @@ class _ExploreScreenState extends State<_ExploreScreen> {
           ],
         ),
         Expanded(
+          // Phones: skip the side gutter entirely so the map gets the full
+          // screen width; keep a small bottom margin so the rounded corners
+          // still read. Larger windows keep symmetric padding.
           child: Padding(
-            padding: EdgeInsets.all(compact ? 12 : 16),
+            padding: compact
+                ? const EdgeInsets.fromLTRB(0, 8, 0, 12)
+                : const EdgeInsets.all(16),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(compact ? 18 : 16),
               child: Stack(
@@ -6309,26 +6314,57 @@ class _ItineraryScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.tonalIcon(
-                      onPressed: onCreateItinerary,
-                      icon: const Icon(Icons.add_circle_outline),
-                      label: const Text('New Itinerary'),
-                    ),
-                    FilledButton.tonalIcon(
-                      onPressed: onAddDay,
-                      icon: const Icon(Icons.calendar_month_outlined),
-                      label: const Text('Add Date'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: onOpenMap,
-                      icon: const Icon(Icons.map_outlined),
-                      label: const Text('Open Map'),
-                    ),
-                  ],
+                // On narrow phones the three icon+label buttons used to wrap
+                // onto three lines. Switch to compact icon-only IconButton.filled
+                // tiles below 400px, full button row above.
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 400;
+                    if (compact) {
+                      return Row(
+                        children: [
+                          IconButton.filledTonal(
+                            tooltip: 'New itinerary',
+                            onPressed: onCreateItinerary,
+                            icon: const Icon(Icons.add_circle_outline),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            tooltip: 'Add date',
+                            onPressed: onAddDay,
+                            icon: const Icon(Icons.calendar_month_outlined),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.outlined(
+                            tooltip: 'Open map',
+                            onPressed: onOpenMap,
+                            icon: const Icon(Icons.map_outlined),
+                          ),
+                        ],
+                      );
+                    }
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: onCreateItinerary,
+                          icon: const Icon(Icons.add_circle_outline),
+                          label: const Text('New Itinerary'),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: onAddDay,
+                          icon: const Icon(Icons.calendar_month_outlined),
+                          label: const Text('Add Date'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: onOpenMap,
+                          icon: const Icon(Icons.map_outlined),
+                          label: const Text('Open Map'),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -6445,17 +6481,16 @@ class _ItineraryDayRouteCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        day.reminder.trim().isEmpty
-                            ? 'No reminder for this date.'
-                            : day.reminder,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
+                      if (day.reminder.trim().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          day.reminder,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: scheme.onSurfaceVariant),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -6556,6 +6591,8 @@ class _ItineraryEmptyStopPreview extends StatelessWidget {
   }
 }
 
+enum _ItemAction { move, duplicate, delete }
+
 class _ItineraryItemCard extends StatelessWidget {
   const _ItineraryItemCard({
     required this.item,
@@ -6631,9 +6668,10 @@ class _ItineraryItemCard extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 6),
-              Wrap(
-                spacing: 4,
-                runSpacing: 4,
+              // Two visible actions (the common ones: Edit + Open map) and a
+              // "More" overflow menu for the rest. On phones the previous
+              // 5-icon row would wrap onto two lines and dominate every card.
+              Row(
                 children: [
                   IconButton(
                     tooltip: 'Edit',
@@ -6642,28 +6680,53 @@ class _ItineraryItemCard extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                   ),
                   IconButton(
-                    tooltip: 'Move to date',
-                    onPressed: onMove,
-                    icon: const Icon(Icons.drive_file_move_outlined),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  IconButton(
-                    tooltip: 'Delete',
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  IconButton(
-                    tooltip: 'Duplicate',
-                    onPressed: onDuplicate,
-                    icon: const Icon(Icons.copy_outlined),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  IconButton(
                     tooltip: 'Open map',
                     onPressed: onOpenMap,
                     icon: const Icon(Icons.map_outlined),
                     visualDensity: VisualDensity.compact,
+                  ),
+                  PopupMenuButton<_ItemAction>(
+                    tooltip: 'More actions',
+                    icon: const Icon(Icons.more_vert),
+                    onSelected: (action) {
+                      switch (action) {
+                        case _ItemAction.move:
+                          onMove();
+                        case _ItemAction.duplicate:
+                          onDuplicate();
+                        case _ItemAction.delete:
+                          onDelete();
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: _ItemAction.move,
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.drive_file_move_outlined),
+                          title: Text('Move to date'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: _ItemAction.duplicate,
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.copy_outlined),
+                          title: Text('Duplicate'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: _ItemAction.delete,
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.delete_outline),
+                          title: Text('Delete'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

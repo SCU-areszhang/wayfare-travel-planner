@@ -304,6 +304,12 @@ String _dartDefineFile(_LocalDemoConfig config) {
   if (config.amapKeys.webJsSecurityCode case final code?) {
     buffer.writeln('AMAP_JS_SECURITY_CODE=$code');
   }
+  if (config.amapKeys.androidKey case final key?) {
+    buffer.writeln('AMAP_ANDROID_KEY=$key');
+  }
+  if (config.amapKeys.iosKey case final key?) {
+    buffer.writeln('AMAP_IOS_KEY=$key');
+  }
   return buffer.toString();
 }
 
@@ -365,6 +371,10 @@ class _LocalDemoConfig {
           _optionValue(arguments, '--amap-web-js-key') ?? env['AMAP_JS_KEY'],
       webJsSecurityCode: _optionValue(arguments, '--amap-js-security-code') ??
           env['AMAP_JS_SECURITY_CODE'],
+      androidKey: _optionValue(arguments, '--amap-android-key') ??
+          env['AMAP_ANDROID_KEY'],
+      iosKey: _optionValue(arguments, '--amap-ios-key') ??
+          env['AMAP_IOS_KEY'],
     );
     return _LocalDemoConfig(
       backendPort: backendPort,
@@ -412,17 +422,23 @@ class AmapLocalKeys {
     this.webServiceKey,
     this.webJsKey,
     this.webJsSecurityCode,
+    this.androidKey,
+    this.iosKey,
   });
 
   final String? webServiceKey;
   final String? webJsKey;
   final String? webJsSecurityCode;
+  final String? androidKey;
+  final String? iosKey;
 
   AmapLocalKeys merge(AmapLocalKeys overrides) {
     return AmapLocalKeys(
       webServiceKey: overrides.webServiceKey ?? webServiceKey,
       webJsKey: overrides.webJsKey ?? webJsKey,
       webJsSecurityCode: overrides.webJsSecurityCode ?? webJsSecurityCode,
+      androidKey: overrides.androidKey ?? androidKey,
+      iosKey: overrides.iosKey ?? iosKey,
     );
   }
 }
@@ -431,6 +447,8 @@ AmapLocalKeys parseAmapLocalKeys(String content) {
   String? webServiceKey;
   String? webJsKey;
   String? webJsSecurityCode;
+  String? androidKey;
+  String? iosKey;
 
   for (final line in const LineSplitter().convert(content)) {
     final trimmed = line.trim();
@@ -445,6 +463,14 @@ AmapLocalKeys parseAmapLocalKeys(String content) {
       webJsKey = _extractApiKey(trimmed) ?? webJsKey;
       continue;
     }
+    if (trimmed.contains('Wayfare_Android')) {
+      androidKey = _extractApiKey(trimmed) ?? androidKey;
+      continue;
+    }
+    if (trimmed.contains('Wayfare_iOS')) {
+      iosKey = _extractApiKey(trimmed) ?? iosKey;
+      continue;
+    }
     final securityMatch = RegExp(
       r'^(?:Security_code|security_code|AMAP_JS_SECURITY_CODE|securityJsCode)\s*[:=,]\s*(\S+)',
     ).firstMatch(trimmed);
@@ -457,6 +483,8 @@ AmapLocalKeys parseAmapLocalKeys(String content) {
     webServiceKey: webServiceKey,
     webJsKey: webJsKey,
     webJsSecurityCode: webJsSecurityCode,
+    androidKey: androidKey,
+    iosKey: iosKey,
   );
 }
 
@@ -518,6 +546,8 @@ Options:
   --amap-web-service-key <k>  Backend AMap Web Service key override.
   --amap-web-js-key <k>       Web AMap JS key override.
   --amap-js-security-code <c> Web AMap security code override; prefer key file or env for secrets.
+  --amap-android-key <k>      Android AMap SDK key override.
+  --amap-ios-key <k>          iOS AMap SDK key override.
   --identifier <value>        Login identifier for the smoke check.
   --query <value>             Search query for the smoke check.
   --timeout-seconds <number>  Startup and smoke timeout.

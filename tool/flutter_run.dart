@@ -32,6 +32,12 @@ Future<void> main(List<String> arguments) async {
   if (keys.webJsSecurityCode case final code?) {
     buffer.writeln('AMAP_JS_SECURITY_CODE=$code');
   }
+  if (keys.androidKey case final key?) {
+    buffer.writeln('AMAP_ANDROID_KEY=$key');
+  }
+  if (keys.iosKey case final key?) {
+    buffer.writeln('AMAP_IOS_KEY=$key');
+  }
   defineFile.writeAsStringSync(buffer.toString());
 
   final runArgs = [

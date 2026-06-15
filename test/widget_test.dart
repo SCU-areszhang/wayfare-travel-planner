@@ -667,11 +667,20 @@ class _FakeBackend implements WayfareBackend {
     String? fallbackName,
   }) async {
     final name = fallbackName?.trim();
+    String? city;
+    if (point.latitude > 30 && point.latitude < 31 && point.longitude > 103 && point.longitude < 105) {
+      city = '成都';
+    } else if (point.latitude > 39 && point.latitude < 40 && point.longitude > 115 && point.longitude < 117) {
+      city = '北京';
+    } else if (point.latitude > 31 && point.latitude < 32 && point.longitude > 120 && point.longitude < 122) {
+      city = '上海';
+    }
     return AmapPickResult(
       point: point,
       name: name == null || name.isEmpty ? 'Selected map point' : name,
       address:
           'Lat ${point.latitude.toStringAsFixed(6)}, Lng ${point.longitude.toStringAsFixed(6)}',
+      city: city,
     );
   }
 

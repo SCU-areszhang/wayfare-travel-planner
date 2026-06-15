@@ -3539,7 +3539,7 @@ Map<String, Object?> _validateAddDay(Map<String, Object?> body) {
     if (dayIndex != null) 'dayIndex': dayIndex,
     'title': _requiredText(body, 'title', maxLength: 80),
     'date': _requiredDate(body, 'date'),
-    'city': _requiredText(body, 'city', maxLength: 80),
+    'city': _optionalText(body, 'city', maxLength: 80) ?? '',
     'reminder': _optionalText(body, 'reminder', maxLength: 500) ?? '',
   };
 }
@@ -3552,7 +3552,7 @@ Map<String, Object?> _validateUpdateDay(Map<String, Object?> body) {
     patch['title'] = _requiredText(body, 'title', maxLength: 80);
   }
   if (body.containsKey('city')) {
-    patch['city'] = _requiredText(body, 'city', maxLength: 80);
+    patch['city'] = _optionalText(body, 'city', maxLength: 80) ?? '';
   }
   if (body.containsKey('reminder')) {
     patch['reminder'] = _optionalText(body, 'reminder', maxLength: 500) ?? '';

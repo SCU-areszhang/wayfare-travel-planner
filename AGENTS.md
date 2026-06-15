@@ -45,6 +45,10 @@ Current acceptance notes:
   metadata and actions vertically instead of crowding trailing controls.
 - Remove redundant manual Save Plan action because itinerary mutations already
   persist to the backend/Saved flow.
+- Mobile UI polish should stay calm and Material 3-native: preserve dynamic
+  color, avoid broad heavy weights and wide letter spacing, prefer concise
+  English labels for frequent navigation and home discovery surfaces, and keep
+  touch targets readable without crowding narrow Android widths.
 
 Non-goals:
 

@@ -1539,12 +1539,12 @@ class _WayfareAppState extends State<WayfareApp> {
         clipBehavior: Clip.antiAlias,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 72,
+        height: 68,
         backgroundColor: colorScheme.surfaceContainer,
         indicatorColor: colorScheme.secondaryContainer,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         labelTextStyle: WidgetStatePropertyAll(
-          TextStyle(color: colorScheme.onSurface, fontWeight: FontWeight.w700),
+          TextStyle(color: colorScheme.onSurface, fontWeight: FontWeight.w500),
         ),
       ),
       navigationRailTheme: NavigationRailThemeData(
@@ -1556,7 +1556,7 @@ class _WayfareAppState extends State<WayfareApp> {
         ),
         selectedLabelTextStyle: TextStyle(
           color: colorScheme.onSurface,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w500,
         ),
         unselectedIconTheme: IconThemeData(color: colorScheme.onSurfaceVariant),
         unselectedLabelTextStyle: TextStyle(
@@ -1732,7 +1732,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                   'Wayfare',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -2049,7 +2049,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                       ).colorScheme.onPrimaryContainer,
                       child: Text(
                         widget.user.initials,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                     ),
                   ),
@@ -4348,7 +4348,7 @@ class _MetricPill extends StatelessWidget {
               color: filled
                   ? scheme.onPrimaryContainer
                   : scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -4385,7 +4385,7 @@ class _ProfileMetricCard extends StatelessWidget {
                 value,
                 style: Theme.of(
                   context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 2),
               Text(
@@ -4624,10 +4624,10 @@ class _HomeScreenState extends State<_HomeScreen> {
   Widget build(BuildContext context) {
     return ListView(
       key: const ValueKey('home-list'),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
         _TravelHeroPanel(repository: widget.repository),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         const _SectionHeader(title: 'Search Anything'),
         const SizedBox(height: 10),
         SearchBar(
@@ -4657,7 +4657,7 @@ class _HomeScreenState extends State<_HomeScreen> {
             onOpenMap: widget.onOpenMap,
           ),
         ],
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         const _SectionHeader(title: 'Recommend for You'),
         const SizedBox(height: 10),
         if (_nearbyLoading || _nearbySpots.isNotEmpty) ...[
@@ -4687,7 +4687,7 @@ class _HomeScreenState extends State<_HomeScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         CollapsibleSection(
           title: 'Hot Citywalks',
           child: Column(
@@ -4708,7 +4708,7 @@ class _HomeScreenState extends State<_HomeScreen> {
                           _CityWalkStopPreview(index: index, stop: stop),
                 ),
                 if (template != _cityWalkTemplates.last)
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
               ],
             ],
           ),
@@ -4750,7 +4750,7 @@ class _SearchResultRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
@@ -4808,7 +4808,7 @@ class _CompactLabel extends StatelessWidget {
         text,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: scheme.onSurfaceVariant,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );
@@ -4913,7 +4913,7 @@ class _CityWalkStopPreview extends StatelessWidget {
             '$index',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSecondaryContainer,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -4928,7 +4928,7 @@ class _CityWalkStopPreview extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(
                   context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
               ),
               Text(
                 '${stop.time} | ${stop.activity}',
@@ -5095,7 +5095,7 @@ class _AdaptiveNavigationRail extends StatelessWidget {
             'W',
             style: TextStyle(
               color: scheme.onPrimaryContainer,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
               fontSize: 20,
             ),
           ),
@@ -5149,7 +5149,7 @@ class _TravelHeroPanel extends StatelessWidget {
     return Card.filled(
       color: scheme.primaryContainer,
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -5163,7 +5163,7 @@ class _TravelHeroPanel extends StatelessWidget {
                       Text(
                         repository.activeItineraryTitle,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w600,
                           color: scheme.onPrimaryContainer,
                         ),
                       ),
@@ -5231,7 +5231,7 @@ class _TravelHeroPanel extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodyLarge
-                                ?.copyWith(fontWeight: FontWeight.w700),
+                                ?.copyWith(fontWeight: FontWeight.w500),
                           ),
                         ],
                       ),
@@ -5871,12 +5871,12 @@ class _ExploreScreenState extends State<_ExploreScreen> {
     );
 
     final label = TextPainter(
-      text: const TextSpan(
+        text: const TextSpan(
         text: 'Selected',
         style: TextStyle(
           color: Color(0xFF172033),
           fontSize: 12,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w500,
         ),
       ),
       maxLines: 1,
@@ -6309,7 +6309,7 @@ class _ItineraryScreen extends StatelessWidget {
         Card.filled(
           color: scheme.primaryContainer,
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -6330,7 +6330,7 @@ class _ItineraryScreen extends StatelessWidget {
                             style: Theme.of(context).textTheme.titleLarge
                                 ?.copyWith(
                                   color: scheme.onPrimaryContainer,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w600,
                                 ),
                           ),
                           const SizedBox(height: 4),
@@ -6428,7 +6428,7 @@ class _ItineraryScreen extends StatelessWidget {
             ),
           ),
         ],
-        const SizedBox(height: 16),
+          const SizedBox(height: 16),
         for (var dayIndex = 0; dayIndex < days.length; dayIndex++) ...[
           _ItineraryDayRouteCard(
             day: days[dayIndex],
@@ -6440,7 +6440,7 @@ class _ItineraryScreen extends StatelessWidget {
             onDuplicate: onDuplicate,
             onOpenMap: onOpenMap,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
         ],
       ],
     );
@@ -6510,7 +6510,7 @@ class _ItineraryDayRouteCard extends StatelessWidget {
                       Text(
                         day.date,
                         style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                            ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                       if (day.reminder.trim().isNotEmpty) ...[
                         const SizedBox(height: 6),
@@ -6661,7 +6661,7 @@ class _ItineraryItemCard extends StatelessWidget {
             '${index + 1}',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSecondaryContainer,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -6676,7 +6676,7 @@ class _ItineraryItemCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(
                   context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
               ),
               const SizedBox(height: 2),
               Text(
@@ -6836,7 +6836,7 @@ class _SavedScreenState extends State<_SavedScreen> {
         .length;
     final filterActive = query.isNotEmpty || activeFolders.isNotEmpty;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
         _SavedWorkspaceSummary(
           total: widget.trips.length,
@@ -6916,8 +6916,8 @@ class _SavedScreenState extends State<_SavedScreen> {
             title: 'Saved itineraries',
             action: '${filteredTrips.length} shown',
           ),
-          const SizedBox(height: 10),
-          for (final trip in filteredTrips) ...[
+            const SizedBox(height: 12),
+            for (final trip in filteredTrips) ...[
             _SavedTripCard(
               trip: trip,
               selected:
@@ -6933,7 +6933,7 @@ class _SavedScreenState extends State<_SavedScreen> {
               ),
               onRemove: () => widget.onRemove(trip),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
           ],
         ],
       ],
@@ -6959,7 +6959,7 @@ class _SavedWorkspaceSummary extends StatelessWidget {
     return Card.filled(
       color: scheme.primaryContainer,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 18),
         child: IntrinsicHeight(
           child: Row(
             children: [
@@ -7029,7 +7029,7 @@ class _SavedMetric extends StatelessWidget {
           Text(
             value,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
               color: scheme.onPrimaryContainer,
             ),
           ),
@@ -7104,7 +7104,7 @@ class _SavedTripCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: selected ? scheme.onSecondaryContainer : null,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
               ),
             ),
             subtitle: Padding(
@@ -7205,7 +7205,7 @@ class _SavedTripCard extends StatelessWidget {
                                 color: selected
                                     ? scheme.onSecondaryContainer
                                     : null,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w600,
                               ),
                         ),
                         const SizedBox(height: 4),
@@ -7436,12 +7436,12 @@ class _ProfileScreenState extends State<_ProfileScreen> {
     );
     final dayCount = widget.repository.itineraryDays.length;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
         Card.filled(
           color: scheme.primaryContainer,
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(20),
             child: Row(
               children: [
                 CircleAvatar(
@@ -7450,7 +7450,7 @@ class _ProfileScreenState extends State<_ProfileScreen> {
                   foregroundColor: scheme.onPrimary,
                   child: Text(
                     widget.user.initials,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -7462,7 +7462,7 @@ class _ProfileScreenState extends State<_ProfileScreen> {
                         widget.user.displayName,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color: scheme.onPrimaryContainer,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -7479,7 +7479,7 @@ class _ProfileScreenState extends State<_ProfileScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         const _SectionHeader(title: 'Travel Data'),
         const SizedBox(height: 10),
         Row(
@@ -7503,7 +7503,7 @@ class _ProfileScreenState extends State<_ProfileScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         const _SectionHeader(title: 'Account Settings'),
         const SizedBox(height: 10),
         Card.outlined(
@@ -7539,7 +7539,7 @@ class _ProfileScreenState extends State<_ProfileScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         const _SectionHeader(title: 'Support'),
         const SizedBox(height: 10),
         Card.outlined(
@@ -7579,7 +7579,9 @@ class _SectionHeader extends StatelessWidget {
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleLarge,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
         if (action != null)
@@ -7651,7 +7653,7 @@ class _EmptyStateCard extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 4),

@@ -166,7 +166,7 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
                 children: [
                   const SizedBox(
                     width: 16,
-                    child: Text('R', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: Text('R', style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
                   Expanded(
                     child: Slider(
@@ -185,7 +185,7 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
                 children: [
                   const SizedBox(
                     width: 16,
-                    child: Text('G', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: Text('G', style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
                   Expanded(
                     child: Slider(
@@ -204,7 +204,7 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
                 children: [
                   const SizedBox(
                     width: 16,
-                    child: Text('B', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: Text('B', style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
                   Expanded(
                     child: Slider(

@@ -23,7 +23,7 @@ class CollapsibleSection extends StatelessWidget {
           title,
           style: Theme.of(
             context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w500),
         ),
         shape: const Border(),
         collapsedShape: const Border(),
@@ -65,7 +65,7 @@ class NearbyTripSpots extends StatelessWidget {
                   child: Text(
                     'Near Your Next Trip',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w500,
                         ),
                   ),
                 ),
@@ -233,7 +233,7 @@ class ScenicTagSheet extends StatelessWidget {
                         Text(
                           '$tag · 5A Scenic Spots',
                           style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w800),
+                              ?.copyWith(fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -286,7 +286,7 @@ class ScenicTagSheet extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                     subtitle: Text(
@@ -359,7 +359,7 @@ class FeaturedScenicCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -452,7 +452,7 @@ class CityWalkTemplateCard extends StatelessWidget {
                       Text(
                         template.title,
                         style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                            ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 6),
                       Text(
@@ -536,7 +536,7 @@ class CityWalkStopPreview extends StatelessWidget {
             '$index',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSecondaryContainer,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -551,7 +551,7 @@ class CityWalkStopPreview extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(
                   context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
               ),
               Text(
                 '${stop.time} | ${stop.activity}',
@@ -587,7 +587,7 @@ class _CompactLabel extends StatelessWidget {
         text,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: scheme.onSurfaceVariant,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );

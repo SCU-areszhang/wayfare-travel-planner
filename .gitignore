@@ -28,3 +28,11 @@ backups/
 
 # Local AMap key file (copy AmapExample.csv and fill in real keys).
 Amap.csv
+
+# IDE / agent workspace directories
+.claude/
+.codex/
+data/
+skills-lock.json
+stderr.tmp
+stdout.tmp

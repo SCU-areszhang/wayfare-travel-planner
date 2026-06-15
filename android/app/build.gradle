@@ -79,6 +79,5 @@ flutter {
 }
 
 dependencies {
-    implementation 'com.amap.api:3dmap:8.1.0'
-    implementation 'com.amap.api:location:6.4.7'
+    implementation 'com.amap.api:3dmap:10.0.600'
 }

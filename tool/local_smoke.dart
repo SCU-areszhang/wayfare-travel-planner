@@ -93,7 +93,7 @@ Future<LocalSmokeReport> runLocalSmoke({
         'POST',
         _join(apiBase, '/auth/login'),
         timeout,
-        body: {'identifier': identifier},
+        body: {'identifier': identifier, 'password': 'smoke-test-pass'},
       );
       final token = payload.json['token']?.toString() ?? '';
       if (payload.statusCode != HttpStatus.ok || token.isEmpty) {
@@ -389,8 +389,22 @@ Future<LocalSmokeReport> runLocalSmoke({
 }
 
 Future<void> main(List<String> arguments) async {
-  final apiBase = Uri.parse(
-    _optionValue(arguments, '--api-base') ?? 'http://127.0.0.1:8080',
+  if (arguments.contains('--help') || arguments.contains('-h')) {
+    stdout.write('''
+Usage: dart run tool/local_smoke.dart [options]
+
+Options:
+  --api-base <url>         Backend URL, default auto-detect.
+  --web-base <url>         Web server URL (optional).
+  --identifier <value>     Login identifier, default demo@wayfare.local.
+  --query <value>          Search query, default orange.
+  --timeout-seconds <n>    Timeout, default 10.
+''');
+    return;
+  }
+
+  final apiBase = await _detectBackend(
+    _optionValue(arguments, '--api-base'),
   );
   final webBaseValue = _optionValue(arguments, '--web-base');
   final report = await runLocalSmoke(
@@ -431,6 +445,28 @@ String? _optionValue(List<String> arguments, String name) {
     }
   }
   return null;
+}
+
+Future<Uri> _detectBackend(String? explicit) async {
+  if (explicit != null) return Uri.parse(explicit);
+  final candidates = [
+    'http://127.0.0.1:8080',
+    'http://192.168.1.122:8080',
+  ];
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+  for (final url in candidates) {
+    try {
+      final req = await client.getUrl(Uri.parse('$url/health'));
+      final res = await req.close().timeout(const Duration(seconds: 2));
+      if (res.statusCode == 200) {
+        client.close(force: true);
+        stdout.writeln('Detected backend at $url');
+        return Uri.parse(url);
+      }
+    } catch (_) {}
+  }
+  client.close(force: true);
+  return Uri.parse(candidates.first);
 }
 
 Future<_JsonPayload> _requestJson(

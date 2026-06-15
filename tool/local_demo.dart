@@ -184,6 +184,7 @@ Future<Process> _startBackend(_LocalDemoConfig config) async {
     workingDirectory: backendDir.path,
     environment: {
       'PORT': config.backendPort.toString(),
+      'WAYFARE_BIND_HOST': '0.0.0.0',
       'WAYFARE_AUTH_SECRET': config.authSecret,
       'WAYFARE_OPS_TOKEN': config.opsToken,
       'WAYFARE_ALLOWED_ORIGINS':

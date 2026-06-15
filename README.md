@@ -1,209 +1,17 @@
 # Wayfare Travel Planner
 
-![Flutter](https://img.shields.io/badge/Flutter-%E2%89%A53.41_stable-blue)
-![Dart](https://img.shields.io/badge/Dart-%E2%89%A53.11-blue)
-![Material 3](https://img.shields.io/badge/Material-3-purple)
-![Backend](https://img.shields.io/badge/Backend-Dart_%2B_SQLite-green)
-![Map](https://img.shields.io/badge/Map-AMap%2FGaode-orange)
-
-A one-stop travel planning prototype: discover destinations, browse 5A scenic
-spots by tag, plan day-by-day itineraries on an interactive AMap, and keep
-saved trips in sync with a local Dart + SQLite backend.
-
-> Works on **Windows, Linux, and macOS** for development. App targets are
-> Web, Android, and iOS. All `flutter` / `dart` commands below are identical
-> on every OS — only environment-variable syntax differs, see
-> [Platform Notes](#platform-notes).
-
-## Contents
-
-- [Features](#features)
-- [Requirements](#requirements)
-- [Quick Start](#quick-start)
-- [Platform Notes](#platform-notes)
-- [AMap / Gaode Keys](#amap--gaode-keys)
-- [Web Release Build](#web-release-build)
-- [Android APK Build](#android-apk-build)
-- [One-Command Local Demo](#one-command-local-demo)
-- [Backend Configuration](#backend-configuration)
-- [Testing & Quality Gates](#testing--quality-gates)
-- [Android Release Signing](#android-release-signing)
-- [Troubleshooting](#troubleshooting)
-- [Project Structure](#project-structure)
-
-## Features
-
-- **Home** — backend scenic-spot search, built-in **5A scenic spot library**
-  browsable by tag (自然 / 人文 / 购物 / 探险 / 都市 / 街巷), system CityWalk
-  templates that copy into a chosen itinerary day, and a hero card showing the
-  nearest upcoming plan item.
-- **Explore Map** — AMap canvas with categorized markers, per-day route
-  polylines, marker bottom sheets, and a point-pick mode that adds map points
-  straight into the itinerary.
-- **Itinerary** — day timeline backed by the server: add / edit / duplicate /
-  delete, drag-to-reorder, Material date picker for new days, save status.
-- **Saved** — searchable, folder-filtered collection of upcoming and past
-  trips.
-- **Profile** — travel preferences, Material You theme picker (System Dynamic
-  Color, Ocean Blue, Forest Green, Sunrise Orange, Neutral Gray, Custom
-  Accent), help center, feedback, onboarding.
-- **Login** — phone/email sign-in with auto-registration. The backend issues a
-  revocable Bearer session token stored in a SQLite `sessions` table; all
-  user-owned routes require it.
-
-The front end always talks to the real backend — it shows an explicit
-connection error instead of silently falling back to fake data.
-
-## Requirements
-
-| Tool | Minimum version | Notes |
-| --- | --- | --- |
-| Flutter | **3.41 stable** | Team floor; newer stable versions work. Enforced via the Dart SDK constraint in `pubspec.yaml`. |
-| Dart | **3.11** | Ships with Flutter ≥3.41. |
-| Python | 3.x | Only for serving the web release build locally. |
-| Android Studio / SDK | latest stable | Only for Android builds (`flutter doctor` must be green). |
-
-Check your toolchain:
-
-```bash
-flutter --version
-flutter doctor
-```
+A Flutter travel planning prototype with AMap (Gaode) integration and a Dart + SQLite backend.
 
 ## Quick Start
 
-### One-Command Local Demo (recommended)
-
-Starts backend + frontend + Smoke Test with AMap keys from `Amap.csv`:
+### 1. Set up AMap keys
 
 ```bash
-dart run tool/local_demo.dart
+cp AmapExample.csv Amap.csv
+# Edit Amap.csv with your real keys
 ```
 
-- Auto-reads `Amap.csv` for AMap keys
-- Auto-rebuilds `flutter build web --release` if `build/web` is missing
-- Starts backend on `:8080`, web server on `:8092`
-- Runs Smoke Test, then keeps services alive
-- Works identically on **Windows, Linux, and macOS**
-
-Options:
-
-```bash
-dart run tool/local_demo.dart --rebuild-web              # force rebuild
-dart run tool/local_demo.dart --skip-build               # skip rebuild entirely
-dart run tool/local_demo.dart --amap-key-file=other.csv  # custom key file
-```
-
-### Hot Reload (debug, with AMap keys)
-
-Run the backend and the hot-reload front end in two terminals.
-
-**Terminal 1 — backend:**
-
-```bash
-cd backend
-dart pub get
-dart run bin/server.dart
-```
-
-**Terminal 2 — Flutter front end (hot reload):**
-
-```bash
-dart run tool/flutter_run.dart
-```
-
-`flutter_run.dart` auto-reads `Amap.csv`, auto-detects Chrome/Edge, passes
-`AMAP_JS_KEY` via `--dart-define-from-file`, and keeps hot reload (`r`) and hot
-restart (`R`) available. Works identically on Windows, Linux, and macOS.
-
-### Manual Two-Terminal Setup
-
-**Terminal 1 — backend** (serves `http://127.0.0.1:8080`):
-
-```bash
-cd backend && dart pub get && dart run bin/server.dart
-```
-
-**Terminal 2 — app:**
-
-```bash
-flutter pub get
-flutter run -d chrome
-```
-
-Without an AMap key the map page shows a setup panel — everything else works.
-To get a real map, see [AMap / Gaode Keys](#amap--gaode-keys).
-
-## Platform Notes
-
-`flutter` / `dart` / `git` commands are identical everywhere. The only
-differences are shell syntax:
-
-| Task | macOS / Linux (bash, zsh) | Windows (PowerShell) |
-| --- | --- | --- |
-| Add Flutter to PATH | `export PATH="$HOME/flutter/bin:$PATH"` | `$env:Path='C:\Program Files\Flutter\bin;'+$env:Path` |
-| Set an env var | `export WAYFARE_AUTH_SECRET='...'` | `$env:WAYFARE_AUTH_SECRET='...'` |
-| Serve a folder over HTTP | `python3 -m http.server 8092 --bind 127.0.0.1 --directory build/web` | `python -m http.server 8092 --bind 127.0.0.1 --directory build/web` |
-| Path separator | `/` | `\` (but `/` also works inside Flutter/Dart tooling) |
-
-### Cross-Platform Command Reference
-
-| Command | Windows | macOS / Linux |
-| --- | --- | --- |
-| Hot reload (debug, with AMap keys) | `dart run tool/flutter_run.dart` | `dart run tool/flutter_run.dart` |
-| One-command demo + Smoke Test | `dart run tool/local_demo.dart` | `dart run tool/local_demo.dart` |
-| Force rebuild + demo | `dart run tool/local_demo.dart --rebuild-web` | `dart run tool/local_demo.dart --rebuild-web` |
-| Skip rebuild + demo | `dart run tool/local_demo.dart --skip-build` | `dart run tool/local_demo.dart --skip-build` |
-| Standalone Smoke Test | `dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092` | `dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092` |
-| Manual web release build | `flutter build web --release --pwa-strategy=none` | `flutter build web --release --pwa-strategy=none` |
-| Build Android APK | `dart run tool/build_apk.dart --api-base=http://<IP>:8080` | `dart run tool/build_apk.dart --api-base=http://<IP>:8080` |
-| Copy service worker | `Copy-Item web\flutter_service_worker.js build\web\flutter_service_worker.js` | `cp web/flutter_service_worker.js build/web/flutter_service_worker.js` |
-| Start backend | `cd backend; dart run bin/server.dart` | `cd backend && dart run bin/server.dart` |
-| Release readiness (local) | `dart run tool/release_readiness.dart --mode local` | `dart run tool/release_readiness.dart --mode local` |
-
-All three tools (`flutter_run.dart`, `local_demo.dart`, `local_smoke.dart`)
-auto-detect `Amap.csv` in the project root and handle Windows `cmd.exe`
-process spawning internally — no OS-specific flags needed.
-
-Platform-specific extras:
-
-- **Windows:** for Windows *desktop* builds with plugins, enable Developer
-  Mode so Flutter can create symlinks: `start ms-settings:developers`.
-- **Linux:** install Chrome/Chromium and set `CHROME_EXECUTABLE` if
-  `flutter run -d chrome` cannot find the browser.
-- **macOS:** iOS builds additionally require Xcode and CocoaPods.
-
-## AMap / Gaode Keys
-
-Keys are passed at build time via `--dart-define` — **never commit keys to the
-repo**. Android package/application id: `com.idm.travelplanner`.
-
-| Define | Used by | Purpose |
-| --- | --- | --- |
-| `AMAP_JS_KEY` | Web | AMap Web JS API key |
-| `AMAP_JS_SECURITY_CODE` | Web | Security code paired with the JS key (required if key security is enabled) |
-| `AMAP_ANDROID_KEY` | Android | AMap Android native key |
-| `AMAP_IOS_KEY` | iOS | AMap iOS native key |
-| `WAYFARE_API_BASE` | all | Point the app at a non-default backend (default `http://127.0.0.1:8080`) |
-
-Examples:
-
-```bash
-# Web build with a real map
-flutter build web --release --pwa-strategy=none \
-  --dart-define=AMAP_JS_KEY=your_web_js_key \
-  --dart-define=AMAP_JS_SECURITY_CODE=your_security_code
-
-# Run on Android with a real map
-flutter run --dart-define=AMAP_ANDROID_KEY=your_amap_android_key
-```
-
-(PowerShell: same commands on one line, or use a backtick `` ` `` instead of
-`\` for line continuation.)
-
-Alternatively keep keys in a local **`Amap.csv`** next to `pubspec.yaml`
-(git-ignored — copy [`AmapExample.csv`](AmapExample.csv) and fill in real
-values). Both the hot-reload tool and the demo tool pick it up automatically:
+`Amap.csv` format:
 
 ```text
 Wayfare_WebSvc, <backend web-service key>
@@ -213,109 +21,38 @@ Wayfare_Android, <android native key>
 Wayfare_iOS, <ios native key>
 ```
 
-Use it for hot-reload development:
+### 2. Start backend
 
 ```bash
-dart run tool/flutter_run.dart
+dart run tool/start_backend.dart
 ```
 
-The legacy `Wayfare_WebJS api_key:<key>` / `Security_code:<code>` format is
-still accepted.
+Binds to `0.0.0.0:8080` by default. Reads `AMAP_WEB_SERVICE_KEY` from `Amap.csv` automatically.
 
-## Web Release Build
+### 3. Build & run
 
-For a manual release build (without the demo tool):
+| Task | Command |
+| --- | --- |
+| **Web hot reload** | `dart run tool/flutter_run.dart` |
+| **One-command demo** (backend + web + smoke test) | `dart run tool/local_demo.dart` |
+| **Build Android APK** | `dart run tool/build_android.dart --api-base=http://<LAN_IP>:8080` |
+| **Build iOS IPA** | `dart run tool/build_ios.dart --api-base=http://<LAN_IP>:8080` |
+| **Smoke test** (backend must be running) | `dart run tool/local_smoke.dart` |
+| **Release readiness check** | `dart run tool/release_readiness.dart --mode=local` |
+
+All tools auto-read `Amap.csv` — no need to type keys on the command line.
+
+## Android APK Install
 
 ```bash
-flutter build web --release --pwa-strategy=none
-```
-
-Two important details:
-
-1. **Always pass `--pwa-strategy=none`.** Earlier builds shipped a caching
-   service worker; browsers that saw one keep serving a stale app shell.
-2. `web/flutter_service_worker.js` is a **self-destructing service worker**
-   that evicts those stale caches. The build wipes it from `build/web`, so
-   copy it back after building:
-
-```bash
-cp web/flutter_service_worker.js build/web/flutter_service_worker.js   # macOS/Linux
-```
-
-```powershell
-Copy-Item web\flutter_service_worker.js build\web\flutter_service_worker.js   # Windows
-```
-
-To include AMap keys, add `--dart-define` flags (see
-[AMap / Gaode Keys](#amap--gaode-keys)). Or use the one-command demo which
-handles this automatically: `dart run tool/local_demo.dart --rebuild-web`.
-
-## Android APK Build
-
-The `build_apk.dart` tool reads all AMap keys from `Amap.csv` and passes them
-as `--dart-define` flags automatically — no need to type keys on the command
-line.
-
-### Build
-
-```bash
-# Clean first (recommended after any key or dependency change)
-flutter clean && flutter pub get
-
-# Build release APKs (reads keys from Amap.csv)
-dart run tool/build_apk.dart --api-base=http://<YOUR_IP>:8080
-```
-
-The script outputs:
-
-```text
-Building APK with keys from File: 'Amap.csv'
-  AMAP_JS_KEY=982***ed3
-  AMAP_ANDROID_KEY=bae***a88
-  ...
-Build succeeded. APKs in build/app/outputs/flutter-apk/
-```
-
-Keys are **masked** in the output — never printed in full.
-
-### Install to device
-
-```bash
-# List connected devices
-adb devices
-
-# Install (replace with the correct ABI for your device)
 adb install -r build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 ```
 
-| ABI | Target |
-| --- | --- |
-| `app-arm64-v8a-release.apk` | Most modern Android phones (recommended) |
-| `app-armeabi-v7a-release.apk` | Older 32-bit devices |
-| `app-x86_64-release.apk` | Emulators |
+For emulators: `adb reverse tcp:8080 tcp:8080`
 
-### LAN access (phone → backend)
+## Android Release Signing
 
-For a physical phone on the same Wi-Fi network, the app connects to the
-backend via LAN IP (set via `--api-base`). Make sure the backend binds to
-`0.0.0.0`:
-
-```powershell
-$env:WAYFARE_BIND_HOST="0.0.0.0"
-cd backend; dart run bin/server.dart
-```
-
-For Android **emulators**, use `adb reverse` so the emulator can reach the
-host backend:
-
-```bash
-adb reverse tcp:8080 tcp:8080
-```
-
-### Android Release Signing
-
-Release builds require a signing key. Create `android/key.properties`
-(git-ignored) pointing to your keystore:
+Create `android/key.properties` (git-ignored):
 
 ```properties
 storePassword=your-password
@@ -324,151 +61,64 @@ keyAlias=your-alias
 storeFile=/path/to/your-release.keystore
 ```
 
-Register the keystore's SHA1 fingerprint with your AMap Android key at
-[console.amap.com](https://console.amap.com).
+Register the keystore's SHA1 with your AMap Android key at [console.amap.com](https://console.amap.com).
 
-## One-Command Local Demo
+## AMap Key Reference
 
-`dart run tool/local_demo.dart` starts (or reuses) the backend on `:8080`,
-serves the web build on `:8092`, runs the smoke check, and keeps both alive
-until you press Ctrl+C.
-
-| Condition | Behavior |
-| --- | --- |
-| `build/web` missing | Auto-rebuilds `flutter build web --release` with AMap keys from `Amap.csv` |
-| `build/web` exists | Skips rebuild, serves existing build |
-| `--rebuild-web` | Forces rebuild even if `build/web` exists |
-| `--skip-build` | Skips rebuild even if `build/web` is missing |
-
-### Standalone Smoke Test
-
-If the backend and frontend are already running separately:
-
-```bash
-dart run tool/local_smoke.dart --web-base=http://127.0.0.1:8092
-```
-
-Checks: backend health, login, auth `/me`, itinerary CRUD, saved CRUD,
-feedback validation, scenic search, web shell reachable.
-
-### Manual Release Build with AMap Keys
-
-```bash
-flutter build web --release --pwa-strategy=none \
-  --dart-define=AMAP_JS_KEY=your_web_js_key \
-  --dart-define=AMAP_JS_SECURITY_CODE=your_security_code
-```
-
-(PowerShell: use backtick `` ` `` instead of `\` for line continuation, or
-put it on one line.)
-
-Then copy the self-destruct service worker and serve:
-
-```bash
-cp web/flutter_service_worker.js build/web/flutter_service_worker.js   # macOS/Linux
-python3 -m http.server 8092 --bind 127.0.0.1 --directory build/web
-```
-
-```powershell
-Copy-Item web\flutter_service_worker.js build\web\flutter_service_worker.js   # Windows
-python -m http.server 8092 --bind 127.0.0.1 --directory build/web
-```
-
-Full handoff checklist: [`docs/local_demo_runbook.md`](docs/local_demo_runbook.md).
+| Define | Used by | Purpose |
+| --- | --- | --- |
+| `AMAP_JS_KEY` | Web | AMap Web JS API key |
+| `AMAP_JS_SECURITY_CODE` | Web | Security code paired with JS key |
+| `AMAP_ANDROID_KEY` | Android | AMap Android native key |
+| `AMAP_IOS_KEY` | iOS | AMap iOS native key |
+| `WAYFARE_API_BASE` | all | Backend URL (default `http://127.0.0.1:8080`) |
 
 ## Backend Configuration
 
-All optional for local development — the server runs with safe defaults and
-reports `auth: development` from `/health` until a real secret is set.
-
 | Env var | Purpose |
 | --- | --- |
-| `WAYFARE_AUTH_SECRET` | Session-token signing secret. **Required** for any shared/deployed environment. |
-| `WAYFARE_ALLOWED_ORIGINS` | CORS allowlist, e.g. `http://127.0.0.1:8092,http://localhost:8092`. Keep narrow. |
-| `WAYFARE_DB_PATH` | SQLite path (default `data/wayfare.sqlite`). |
-| `WAYFARE_OPS_TOKEN` | Enables protected aggregate metrics at `/ops/metrics` and schema/migration info at `/ops/schema`. |
-| `WAYFARE_BACKUP_DIR` | Target for verified SQLite backups: `dart run bin/backup.dart` (run from `backend/`). |
+| `WAYFARE_BIND_HOST` | Bind address (default `127.0.0.1`) |
+| `PORT` | Server port (default `8080`) |
+| `WAYFARE_DB_PATH` | SQLite path (default `data/wayfare.sqlite`) |
+| `WAYFARE_AUTH_SECRET` | Session-token signing secret |
+| `WAYFARE_OPS_TOKEN` | Protected metrics token |
+| `WAYFARE_ALLOWED_ORIGINS` | CORS allowlist |
+| `AMAP_WEB_SERVICE_KEY` | Auto-loaded from `Amap.csv` |
 
-Useful endpoints: `/health`, `/search?q=橘子洲`. Per-client rate limiting for
-auth, search, and write routes is on by default — overrides documented in
-[`backend/README.md`](backend/README.md).
-
-The seed data covers 4A+ scenic spots and urban-core attractions for
-first-tier and 2025 new-first-tier cities; the in-app 5A library lives in
-`lib/scenic_spots_5a.dart`.
-
-## Testing & Quality Gates
+## Testing
 
 ```bash
-flutter analyze          # static analysis — must be clean
-flutter test             # widget + data tests
+flutter analyze
+flutter test
+dart run tool/release_readiness.dart --mode=local
 ```
-
-Release readiness gate:
-
-```bash
-dart run tool/release_readiness.dart --mode local     # repeatable CI/handoff check
-dart run tool/release_readiness.dart --mode release   # production inputs required
-```
-
-`--mode release` demands a strong `WAYFARE_AUTH_SECRET`, HTTPS-only
-`WAYFARE_ALLOWED_ORIGINS`, a production HTTPS `WAYFARE_API_BASE`, real AMap
-keys, and Android release signing.
-
-## Android Release Signing
-
-Release builds refuse debug keys. Provide signing either via environment
-variables:
-
-| Env var | Meaning |
-| --- | --- |
-| `WAYFARE_ANDROID_KEYSTORE` | Path to the release `.jks` |
-| `WAYFARE_ANDROID_STORE_PASSWORD` | Keystore password |
-| `WAYFARE_ANDROID_KEY_ALIAS` | Key alias |
-| `WAYFARE_ANDROID_KEY_PASSWORD` | Key password |
-
-…or via a git-ignored `android/key.properties`:
-
-```properties
-storeFile=/secure/wayfare-release.jks        # Windows: C:\\secure\\wayfare-release.jks
-storePassword=store-password
-keyAlias=wayfare
-keyPassword=key-password
-```
-
-Then:
-
-```bash
-flutter build apk
-```
-
-## Troubleshooting
-
-| Symptom | Cause / fix |
-| --- | --- |
-| Old UI keeps showing after a rebuild (stale buttons, old badges) | A legacy service worker is serving cache. Make sure the self-destruct `flutter_service_worker.js` is in `build/web`, then hard-refresh once (Ctrl/Cmd+Shift+R). |
-| Compile error `No named parameter ...` | Your Flutter is older than the 3.41 floor — run `flutter upgrade`. Conversely, don't introduce APIs newer than 3.41 stable; CI-less repo relies on this floor. |
-| Map page shows a setup panel | No AMap key in the build — pass `AMAP_JS_KEY` (web) or the native key defines. If the key has security enabled, `AMAP_JS_SECURITY_CODE` is required too. |
-| "Backend is not reachable" snackbar | Start the backend first: `cd backend && dart run bin/server.dart`, then check `/health`. |
-| CORS errors in the browser console | Set `WAYFARE_ALLOWED_ORIGINS` to include the origin serving the web build (e.g. `http://127.0.0.1:8092`). |
-| Android APK shows "AMap key not configured" | Run `flutter clean && flutter pub get` before rebuilding. Ensure `Amap.csv` contains `Wayfare_Android` with a valid key. |
-| Android APK cannot reach backend | Ensure backend binds to `0.0.0.0` (`$env:WAYFARE_BIND_HOST="0.0.0.0"`), and `--api-base` points to your LAN IP. For emulators use `adb reverse tcp:8080 tcp:8080`. |
 
 ## Project Structure
 
 ```text
-IDM/
 ├── lib/
 │   ├── main.dart                 # app: models, API client, state, screens
-│   ├── scenic_spots_5a.dart      # built-in 5A scenic spot library (tagged)
-│   ├── amap_canvas_web.dart      # Web AMap JS bridge (+ stub for non-web)
-│   └── *_field_web/stub.dart     # platform-conditional input fields
+│   ├── scenic_spots_5a.dart      # built-in 5A scenic spot library
+│   └── amap_canvas_web.dart      # Web AMap JS bridge
 ├── backend/
-│   ├── bin/server.dart           # Dart HTTP server, routes, SQLite store
-│   ├── bin/backup.dart           # verified SQLite backups
-│   └── data/wayfare.sqlite       # local prototype data (git-ignored)
-├── web/                          # web shell + self-destruct service worker
-├── test/                         # widget + scenic-data tests
-├── tool/                         # flutter_run, local_demo, local_smoke, build_apk, release_readiness
-└── docs/                         # requirements, UI design, runbooks
+│   ├── bin/server.dart           # HTTP server, routes, SQLite
+│   └── data/wayfare.sqlite       # local prototype data
+├── tool/
+│   ├── start_backend.dart        # start backend (reads Amap.csv)
+│   ├── build_android.dart        # build Android APK
+│   ├── build_ios.dart            # build iOS IPA (macOS only)
+│   ├── flutter_run.dart          # hot reload with AMap keys
+│   ├── local_demo.dart           # one-command demo
+│   ├── local_smoke.dart          # smoke test
+│   └── release_readiness.dart    # release gate check
+└── Amap.csv                      # your keys (git-ignored)
 ```
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Map shows setup panel | No AMap key — ensure `Amap.csv` exists with valid keys |
+| "Backend is not reachable" | Start backend: `dart run tool/start_backend.dart` |
+| Android can't reach backend | Backend must bind to `0.0.0.0`, use `--api-base=http://<LAN_IP>:8080` |
+| Stale UI after rebuild | Hard-refresh (Ctrl+Shift+R) |

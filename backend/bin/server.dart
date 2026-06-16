@@ -18,7 +18,7 @@ void main(List<String> args) async {
       Platform.environment['WAYFARE_DB_PATH'] ?? 'data/wayfare.sqlite';
   final amapWebServiceKey = _loadAmapWebServiceKey();
   final store = SqliteStore.open(databasePath, amapWebServiceKey: amapWebServiceKey);
-  final bindHost = Platform.environment['WAYFARE_BIND_HOST'] ?? '127.0.0.1';
+  final bindHost = Platform.environment['WAYFARE_BIND_HOST'] ?? '0.0.0.0';
   final bindAddress =
       InternetAddress.tryParse(bindHost) ?? InternetAddress.loopbackIPv4;
   final server = await HttpServer.bind(bindAddress, port);

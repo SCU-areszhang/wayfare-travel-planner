@@ -8,7 +8,7 @@ Future<void> main(List<String> arguments) async {
 Usage: dart run tool/build_ios.dart [options]
 
 Options:
-  --api-base <url>   Backend URL, default http://127.0.0.1:8080.
+  --api-base <url>   Backend URL, default auto-detected LAN IP on port 8080.
 
 Reads AMap keys from Amap.csv automatically.
 Requires macOS with Xcode installed.
@@ -28,7 +28,7 @@ Requires macOS with Xcode installed.
   }
 
   final keys = parseAmapLocalKeys(keyFile.readAsStringSync());
-  final apiBase = _optionValue(arguments, '--api-base') ?? 'http://127.0.0.1:8080';
+  final apiBase = _optionValue(arguments, '--api-base') ?? await _detectLocalApiBase();
 
   final defines = <String, String>{
     'WAYFARE_API_BASE': apiBase,
@@ -74,6 +74,32 @@ File? _findAmapKeyFile() {
     if (file.existsSync()) return file;
   }
   return null;
+}
+
+Future<String> _detectLocalApiBase() async {
+  final ip = await _detectLocalIp();
+  return 'http://$ip:8080';
+}
+
+Future<String> _detectLocalIp() async {
+  try {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: false,
+    );
+    for (final interface in interfaces) {
+      for (final addr in interface.addresses) {
+        final a = addr.address;
+        if (!addr.isLoopback &&
+            (a.startsWith('192.168.') ||
+                a.startsWith('10.') ||
+                a.startsWith('172.'))) {
+          return a;
+        }
+      }
+    }
+  } catch (_) {}
+  return '127.0.0.1';
 }
 
 String? _optionValue(List<String> arguments, String name) {

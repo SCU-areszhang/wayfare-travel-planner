@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Wayfare app icon">
+  <defs>
+    <linearGradient id="bg" x1="10" y1="4" x2="54" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#386A8B"/>
+      <stop offset="1" stop-color="#0B6B8A"/>
+    </linearGradient>
+    <linearGradient id="map" x1="17" y1="16" x2="49" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EAF6F6"/>
+      <stop offset="1" stop-color="#B8D8CE"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#bg)"/>
+  <path d="M13 20.5c0-1.7 1.2-3.2 2.9-3.5l9.9-1.8c.7-.1 1.5 0 2.1.3l8.1 4 10.7-2.6c2.2-.5 4.3 1.2 4.3 3.5v22.8c0 1.7-1.2 3.2-2.9 3.5l-10.3 1.9c-.7.1-1.5 0-2.1-.3l-8-4-10.4 2.6c-2.2.6-4.3-1.1-4.3-3.4v-23z" fill="url(#map)"/>
+  <path d="M28 15.8v28.5M36 19.9v28.4" fill="none" stroke="#7DB7AF" stroke-width="2" stroke-linecap="round" opacity=".72"/>
+  <path d="M18.5 38c4.8-8.8 11.1-4.4 16.4-11.8 2.9-4.1 6.3-5.3 10.6-4" fill="none" stroke="#F8FAF7" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18.5 38c4.8-8.8 11.1-4.4 16.4-11.8 2.9-4.1 6.3-5.3 10.6-4" fill="none" stroke="#386A8B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M43 27c5.1 0 9.2 4.1 9.2 9.1 0 6.4-9.2 13-9.2 13s-9.2-6.6-9.2-13c0-5 4.1-9.1 9.2-9.1z" fill="#F0B45A"/>
+  <circle cx="43" cy="36.1" r="3.3" fill="#FFF7E6"/>
+</svg>

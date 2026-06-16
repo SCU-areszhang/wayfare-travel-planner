@@ -3576,6 +3576,9 @@ Map<String, Object?> _validateAddItem(Map<String, Object?> body) {
   if (_optionalText(body, 'placeId', maxLength: 120) case final placeId?) {
     item['placeId'] = placeId;
   }
+  if (_optionalText(body, 'city', maxLength: 80) case final city?) {
+    item['city'] = city;
+  }
   if (_optionalPositiveInt(body, 'order', max: 1000) case final order?) {
     item['order'] = order;
   }
@@ -3603,6 +3606,9 @@ Map<String, Object?> _validateUpdateItem(Map<String, Object?> body) {
   }
   if (body.containsKey('status')) {
     item['status'] = _status(body['status']);
+  }
+  if (body.containsKey('city')) {
+    item['city'] = _optionalText(body, 'city', maxLength: 80) ?? '';
   }
   item.addAll(_optionalPoint(body));
   if (item.isEmpty) {

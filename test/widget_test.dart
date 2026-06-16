@@ -712,6 +712,7 @@ class _FakeBackend implements WayfareBackend {
     required String activity,
     required String note,
     LatLng? point,
+    String? city,
   }) async {
     _itemCounter += 1;
     addItemCalls.add(_AddItemCall(dayId: dayId, place: place));
@@ -723,6 +724,7 @@ class _FakeBackend implements WayfareBackend {
       note: note,
       status: 'Saved',
       point: point,
+      city: city ?? '',
     );
   }
 
@@ -737,6 +739,7 @@ class _FakeBackend implements WayfareBackend {
     required String activity,
     required String note,
     LatLng? point,
+    String? city,
   }) async {
     _itemCounter += 1;
     updateItemCalls.add(
@@ -750,6 +753,7 @@ class _FakeBackend implements WayfareBackend {
       note: note,
       status: 'Saved',
       point: point,
+      city: city ?? '',
     );
   }
 

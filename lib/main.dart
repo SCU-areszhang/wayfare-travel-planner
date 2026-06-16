@@ -224,6 +224,7 @@ class ItineraryItem {
     required this.note,
     required this.status,
     this.point,
+    this.city = '',
   }) : id = id ?? _nextLocalId('item');
 
   final String id;
@@ -233,6 +234,10 @@ class ItineraryItem {
   String note;
   String status;
   LatLng? point;
+  // City this stop sits in, captured from its source (AMap pick / search
+  // result / CityWalk template). A day's city is lazily synced to the city of
+  // its first stop, so storing it here avoids re-geocoding on every change.
+  String city;
 }
 
 class MapPlace {
@@ -537,6 +542,7 @@ abstract interface class WayfareBackend {
     required String activity,
     required String note,
     LatLng? point,
+    String? city,
   });
   Future<ItineraryItem> updateItem(
     String itineraryId,
@@ -548,6 +554,7 @@ abstract interface class WayfareBackend {
     required String activity,
     required String note,
     LatLng? point,
+    String? city,
   });
   Future<void> deleteItem(String itineraryId, String dayId, String itemId);
   Future<void> deleteDay(String itineraryId, String dayId);
@@ -751,6 +758,7 @@ class WayfareApiClient implements WayfareBackend {
     required String activity,
     required String note,
     LatLng? point,
+    String? city,
   }) async {
     final body = await _post('/itineraries/$itineraryId/days/$dayId/items', {
       'time': time,
@@ -760,6 +768,7 @@ class WayfareApiClient implements WayfareBackend {
       'status': 'saved',
       if (point != null) 'lat': point.latitude,
       if (point != null) 'lng': point.longitude,
+      if (city != null && city.trim().isNotEmpty) 'city': city.trim(),
     });
     return _itemFromJson(_asMap(body['item']));
   }
@@ -775,6 +784,7 @@ class WayfareApiClient implements WayfareBackend {
     required String activity,
     required String note,
     LatLng? point,
+    String? city,
   }) async {
     final body =
         await _patch('/itineraries/$itineraryId/days/$dayId/items/$itemId', {
@@ -786,6 +796,7 @@ class WayfareApiClient implements WayfareBackend {
           'status': 'saved',
           if (point != null) 'lat': point.latitude,
           if (point != null) 'lng': point.longitude,
+          if (city != null && city.trim().isNotEmpty) 'city': city.trim(),
         });
     return _itemFromJson(_asMap(body['item']));
   }
@@ -1327,6 +1338,7 @@ ItineraryItem _itemFromJson(Map<String, Object?> json) {
     note: json['note']?.toString() ?? '',
     status: _displayStatus(json['status']?.toString()),
     point: lat == null || lng == null ? null : LatLng(lat, lng),
+    city: json['city']?.toString() ?? '',
   );
 }
 
@@ -2604,6 +2616,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                               activity: activity,
                               note: note,
                               point: point,
+                              city: city,
                             );
                             if (created == null || !context.mounted) {
                               return;
@@ -2738,6 +2751,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           activity: stop.activity,
           note: stop.note,
           point: stop.point,
+          city: template.city,
         ),
       );
       if (created != null && mounted) {
@@ -3007,6 +3021,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         activity: item.activity,
         note: item.note,
         point: item.point,
+        city: item.city,
       ),
     );
     if (moved == null || !mounted) {
@@ -3038,6 +3053,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         activity: '${item.activity} copy',
         note: item.note,
         point: item.point,
+        city: item.city,
       ),
     );
     if (created == null || !mounted) {
@@ -3255,6 +3271,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                                     activity: 'Visit selected map point',
                                     note: note.text.trim(),
                                     point: point,
+                                    city: pick.city,
                                   );
                                   if (created == null || !context.mounted) {
                                     return;
@@ -3455,6 +3472,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
                                     activity: activity.text.trim(),
                                     note: note.text.trim(),
                                     point: resolvedPoint,
+                                    city: item.city,
                                   ),
                                 );
                                 final sourceDay = oldDay;
@@ -3509,6 +3527,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     required String activity,
     required String note,
     LatLng? point,
+    String? city,
   }) async {
     final itineraryId = _repository.activeItineraryId;
     if (itineraryId == null) {
@@ -3529,6 +3548,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         activity: activity,
         note: note,
         point: point,
+        city: city,
       ),
     );
     if (item != null && mounted) {
@@ -3556,6 +3576,12 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
 
   // Lazy-update a day's city to match its first item (by time).
   // When the day is empty the city becomes ''.
+  // Lazy-update a day's city to match its first stop (earliest by time).
+  // The city is taken from the stop's stored `city` (captured when the stop
+  // was added from a pick / search / template). Only when the first stop has
+  // no stored city but does have coordinates do we fall back to a one-off
+  // reverse-geocode — and a failed/empty lookup leaves the day unchanged
+  // rather than wiping a previously correct city. An empty day clears to ''.
   Future<void> _syncDayCity(ItineraryDay day) async {
     final itineraryId = _repository.activeItineraryId;
     if (itineraryId == null) return;
@@ -3567,15 +3593,28 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       final firstItem = day.items.reduce(
         (a, b) => a.time.compareTo(b.time) <= 0 ? a : b,
       );
-      if (firstItem.point == null) {
-        newCity = '';
-      } else {
+      final storedCity = firstItem.city.trim();
+      if (storedCity.isNotEmpty) {
+        newCity = storedCity;
+      } else if (firstItem.point != null) {
+        String resolved;
         try {
           final pick = await widget.backend.reverseGeocode(firstItem.point!);
-          newCity = pick.city?.trim() ?? '';
+          resolved = pick.city?.trim() ?? '';
         } catch (_) {
           return;
         }
+        if (resolved.isEmpty) {
+          // Could not resolve a city; don't clobber the existing value.
+          return;
+        }
+        // Cache it back on the stop so later syncs stay offline-cheap.
+        firstItem.city = resolved;
+        newCity = resolved;
+      } else {
+        // First stop has neither a stored city nor coordinates: leave the
+        // day's current city as-is.
+        return;
       }
     }
 

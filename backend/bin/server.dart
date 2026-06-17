@@ -17,7 +17,8 @@ void main(List<String> args) async {
   final databasePath =
       Platform.environment['WAYFARE_DB_PATH'] ?? 'data/wayfare.sqlite';
   final amapWebServiceKey = _loadAmapWebServiceKey();
-  final store = SqliteStore.open(databasePath, amapWebServiceKey: amapWebServiceKey);
+  final store =
+      SqliteStore.open(databasePath, amapWebServiceKey: amapWebServiceKey);
   final bindHost = Platform.environment['WAYFARE_BIND_HOST'] ?? '0.0.0.0';
   final bindAddress =
       InternetAddress.tryParse(bindHost) ?? InternetAddress.loopbackIPv4;
@@ -252,10 +253,19 @@ Future<void> _handle(HttpRequest request, SqliteStore store) async {
       });
     }
 
+    if (method == 'GET' && _matches(path, ['image-proxy'])) {
+      return _proxyImage(request);
+    }
+
     if (method == 'GET' && _matches(path, ['search'])) {
       final query = request.uri.queryParameters['q'] ?? '';
       final limit = _queryLimit(request.uri.queryParameters['limit']);
-      return _json(request, {'items': await store.search(query, limit: limit)});
+      final items = await store.search(query, limit: limit);
+      return _json(request, {
+        'items': [
+          for (final item in items) _withProxiedImageUrl(request, item),
+        ],
+      });
     }
 
     if (method == 'GET' && _matches(path, ['reverse-geocode'])) {
@@ -402,16 +412,12 @@ Future<void> _handleItinerary(
     );
   }
 
-  if (request.method == 'DELETE' &&
-      path.length == 4 &&
-      path[2] == 'days') {
+  if (request.method == 'DELETE' && path.length == 4 && path[2] == 'days') {
     store.deleteDay(path[1], path[3]);
     return _json(request, {'deleted': path[3]});
   }
 
-  if (request.method == 'PATCH' &&
-      path.length == 4 &&
-      path[2] == 'days') {
+  if (request.method == 'PATCH' && path.length == 4 && path[2] == 'days') {
     final body = await _body(request);
     return _json(
       request,
@@ -1079,7 +1085,15 @@ class SqliteStore {
       '(id, identifier, display_name, password_hash, password_salt, '
       'created_at, last_login_at) '
       'VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, identifier, displayName, _hashPassword(password, salt), salt, now, now],
+      [
+        id,
+        identifier,
+        displayName,
+        _hashPassword(password, salt),
+        salt,
+        now,
+        now
+      ],
     );
     return {
       'registered': true,
@@ -1164,7 +1178,8 @@ class SqliteStore {
 
   // Returns false when the user is missing or the current password does not
   // match. A user with no password yet may set one without a current password.
-  bool changePassword(String userId, String currentPassword, String newPassword) {
+  bool changePassword(
+      String userId, String currentPassword, String newPassword) {
     final rows = _db.select(
       'SELECT password_hash, password_salt FROM users WHERE id = ?',
       [userId],
@@ -3067,10 +3082,7 @@ String? _amapPhotoUrl(Map<Object?, Object?> poi) {
   return url;
 }
 
-String _imageUrl(String name, String city) {
-  final seed = Uri.encodeComponent('$city-$name-travel');
-  return 'https://picsum.photos/seed/$seed/640/360';
-}
+String _imageUrl(String _, String __) => '';
 
 List<Map<String, Object?>> _days(Map<String, Object?> trip) {
   return (trip['days'] as List).cast<Map<String, Object?>>();
@@ -3124,6 +3136,87 @@ Future<void> _json(
   request.response.headers.contentType = ContentType.json;
   request.response.write(jsonEncode(body));
   await request.response.close();
+}
+
+Future<void> _proxyImage(HttpRequest request) async {
+  final rawUrl = request.uri.queryParameters['url']?.trim() ?? '';
+  final target = Uri.tryParse(rawUrl);
+  if (target == null ||
+      (target.scheme != 'http' && target.scheme != 'https') ||
+      !_isAllowedImageHost(target.host)) {
+    request.response
+      ..statusCode = HttpStatus.badRequest
+      ..headers.contentType = ContentType.text
+      ..write('Unsupported image URL.');
+    await request.response.close();
+    return;
+  }
+
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+  try {
+    final upstreamRequest = await client.getUrl(target);
+    upstreamRequest.headers.set(
+      HttpHeaders.userAgentHeader,
+      'WayfareImageProxy/1.0',
+    );
+    final upstreamResponse = await upstreamRequest.close().timeout(
+          const Duration(seconds: 12),
+        );
+    if (upstreamResponse.statusCode != HttpStatus.ok) {
+      request.response
+        ..statusCode = HttpStatus.badGateway
+        ..headers.contentType = ContentType.text
+        ..write('Image upstream returned ${upstreamResponse.statusCode}.');
+      await request.response.close();
+      return;
+    }
+
+    final contentType = upstreamResponse.headers.contentType;
+    request.response.statusCode = HttpStatus.ok;
+    request.response.headers
+      ..contentType = contentType?.primaryType == 'image'
+          ? contentType
+          : ContentType('image', 'jpeg')
+      ..set(HttpHeaders.cacheControlHeader, 'public, max-age=86400');
+    await upstreamResponse.pipe(request.response);
+  } catch (_) {
+    request.response
+      ..statusCode = HttpStatus.badGateway
+      ..headers.contentType = ContentType.text
+      ..write('Image proxy failed.');
+    await request.response.close();
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Map<String, Object?> _withProxiedImageUrl(
+  HttpRequest request,
+  Map<String, Object?> item,
+) {
+  final rawUrl = item['imageUrl']?.toString().trim();
+  if (rawUrl == null || rawUrl.isEmpty) {
+    return item;
+  }
+  final target = Uri.tryParse(rawUrl);
+  if (target == null ||
+      (target.scheme != 'http' && target.scheme != 'https') ||
+      !_isAllowedImageHost(target.host)) {
+    return item;
+  }
+  return {
+    ...item,
+    'imageUrl': request.requestedUri.replace(
+        path: '/image-proxy', queryParameters: {'url': rawUrl}).toString(),
+  };
+}
+
+bool _isAllowedImageHost(String host) {
+  final value = host.toLowerCase();
+  return value == 'amap.com' ||
+      value.endsWith('.amap.com') ||
+      value == 'autonavi.com' ||
+      value.endsWith('.autonavi.com');
 }
 
 Future<void> _notFound(HttpRequest request, String message) {
@@ -3223,6 +3316,9 @@ String _routeTemplate(String method, List<String> path) {
   }
   if (_matches(path, ['recommendations'])) {
     return '/recommendations';
+  }
+  if (_matches(path, ['image-proxy'])) {
+    return '/image-proxy';
   }
   if (_matches(path, ['search'])) {
     return '/search';

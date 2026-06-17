@@ -338,6 +338,7 @@ class CityWalkTemplate {
     required this.city,
     required this.summary,
     required this.duration,
+    required this.imageQuery,
     required this.stops,
   });
 
@@ -346,6 +347,7 @@ class CityWalkTemplate {
   final String city;
   final String summary;
   final String duration;
+  final String imageQuery;
   final List<CityWalkStop> stops;
 }
 
@@ -356,6 +358,7 @@ const _cityWalkTemplates = [
     city: '成都',
     summary: '茶馆、巷子、小吃，轻松的傍晚节奏',
     duration: '半天',
+    imageQuery: '宽窄巷子',
     stops: [
       CityWalkStop(
         time: '10:00',
@@ -386,6 +389,7 @@ const _cityWalkTemplates = [
     city: '北京',
     summary: '湖景、胡同街道，经典北京风情',
     duration: '一天',
+    imageQuery: '什刹海',
     stops: [
       CityWalkStop(
         time: '09:30',
@@ -416,6 +420,7 @@ const _cityWalkTemplates = [
     city: '上海',
     summary: '博物馆、江景、天际线，地铁换乘便捷',
     duration: '半天',
+    imageQuery: '外滩',
     stops: [
       CityWalkStop(
         time: '10:00',
@@ -2260,6 +2265,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         _ItineraryScreen(
           title: _repository.activeItineraryTitle,
           days: _repository.itineraryDays,
+          onSearch: widget.backend.searchPlaces,
           onAddDay: _showAddDaySheet,
           onDeleteDay: _confirmDeleteDay,
           onEdit: (item) => _showEditItemSheet(item: item),
@@ -4525,10 +4531,15 @@ class _HomeScreenState extends State<_HomeScreen> {
   var _nearbyLoading = false;
   String? _nearbyCity;
 
+  final Map<String, String?> _homeCardImageUrls = {};
+  final Set<String> _homeCardImageLoads = {};
+
   @override
   void initState() {
     super.initState();
     _loadNearbySpots();
+    _loadFeaturedScenicImages(_selectedScenicTag);
+    _loadCityWalkImages();
   }
 
   @override
@@ -4587,6 +4598,65 @@ class _HomeScreenState extends State<_HomeScreen> {
     }
   }
 
+  String _scenicImageKey(FeaturedScenicSpot spot) {
+    return 'scenic:${spot.query}';
+  }
+
+  String _cityWalkImageKey(CityWalkTemplate template) {
+    return 'citywalk:${template.id}';
+  }
+
+  void _loadFeaturedScenicImages(String tag) {
+    final spots = featuredScenicSpots
+        .where((spot) => spot.tags.contains(tag))
+        .toList(growable: false);
+    for (final spot in spots) {
+      _loadHomeCardImage(key: _scenicImageKey(spot), query: spot.query);
+    }
+  }
+
+  void _loadCityWalkImages() {
+    for (final template in _cityWalkTemplates) {
+      _loadHomeCardImage(
+        key: _cityWalkImageKey(template),
+        query: template.imageQuery,
+      );
+    }
+  }
+
+  Future<void> _loadHomeCardImage({
+    required String key,
+    required String query,
+  }) async {
+    if (_homeCardImageUrls.containsKey(key) || !_homeCardImageLoads.add(key)) {
+      return;
+    }
+    String? imageUrl;
+    try {
+      final results = await widget.onSearch(query);
+      TravelSearchResult? bestResult;
+      var bestScore = -1000;
+      for (final result in results) {
+        if (_isUsableTravelImageUrl(result.imageUrl)) {
+          final score = _travelImageResultScore(result, query);
+          if (bestResult == null || score > bestScore) {
+            bestResult = result;
+            bestScore = score;
+          }
+        }
+      }
+      imageUrl = bestResult?.imageUrl?.trim();
+    } catch (_) {
+      imageUrl = null;
+    } finally {
+      _homeCardImageLoads.remove(key);
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() => _homeCardImageUrls[key] = imageUrl);
+  }
+
   Future<void> _openFeaturedScenicSpot(FeaturedScenicSpot spot) async {
     if (_scenicSearching) {
       return;
@@ -4609,10 +4679,12 @@ class _HomeScreenState extends State<_HomeScreen> {
 
   void _selectScenicTag(String tag) {
     setState(() => _selectedScenicTag = tag);
+    _loadFeaturedScenicImages(tag);
   }
 
   Future<void> _browseScenicTag(String tag) async {
     setState(() => _selectedScenicTag = tag);
+    _loadFeaturedScenicImages(tag);
     final spot = await showModalBottomSheet<FeaturedScenicSpot>(
       context: context,
       showDragHandle: true,
@@ -4695,6 +4767,8 @@ class _HomeScreenState extends State<_HomeScreen> {
             error: _searchError,
             onAdd: widget.onAddSearchResult,
             onOpenMap: widget.onOpenMap,
+            resultBuilder: (result, onAdd) =>
+                _HomeSearchResultCard(result: result, onAdd: onAdd),
           ),
         ],
         const SizedBox(height: 20),
@@ -4707,7 +4781,7 @@ class _HomeScreenState extends State<_HomeScreen> {
             spots: _nearbySpots,
             onAdd: widget.onAddSearchResult,
             searchResultBuilder: (result, onAdd) =>
-                _SearchResultRow(result: result, onAdd: onAdd),
+                _HomeSearchResultCard(result: result, onAdd: onAdd),
           ),
           const SizedBox(height: 8),
         ],
@@ -4722,6 +4796,7 @@ class _HomeScreenState extends State<_HomeScreen> {
             onSpotSelected: _openFeaturedScenicSpot,
             scenicCardBuilder: (spot, busy, onSelected) => FeaturedScenicCard(
               spot: spot,
+              imageUrl: _homeCardImageUrls[_scenicImageKey(spot)],
               busy: busy,
               onSelected: onSelected,
             ),
@@ -4735,6 +4810,7 @@ class _HomeScreenState extends State<_HomeScreen> {
               for (final template in _cityWalkTemplates) ...[
                 CityWalkTemplateCard(
                   template: template,
+                  imageUrl: _homeCardImageUrls[_cityWalkImageKey(template)],
                   onCopy: () => widget.onCopyTemplate(template),
                   metricPillBuilder:
                       ({
@@ -4830,6 +4906,144 @@ class _SearchResultRow extends StatelessWidget {
   }
 }
 
+class _HomeSearchResultCard extends StatelessWidget {
+  const _HomeSearchResultCard({required this.result, required this.onAdd});
+
+  final TravelSearchResult result;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final shouldShowLevel =
+        result.level.isNotEmpty && result.level.toLowerCase() != 'amap';
+    final subtitle = _cleanSearchSubtitle(result.subtitle);
+    final intro = result.intro.trim();
+    final detail = intro.isEmpty ? subtitle : '$subtitle · $intro';
+    return SizedBox(
+      key: ValueKey('home-search-result-card-${result.id}'),
+      height: 112,
+      child: Material(
+        color: scheme.surface.withValues(alpha: 0.42),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final imageWidth = constraints.maxHeight * 4 / 3;
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                result.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                            if (shouldShowLevel) ...[
+                              const SizedBox(width: 6),
+                              _CompactLabel(text: result.level),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        if (detail.isNotEmpty)
+                          Expanded(
+                            child: Text(
+                              detail,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                            ),
+                          )
+                        else
+                          const Spacer(),
+                        SizedBox.square(
+                          dimension: 34,
+                          child: IconButton.filled(
+                            key: ValueKey('search-result-add-${result.id}'),
+                            tooltip: 'Add to itinerary',
+                            padding: EdgeInsets.zero,
+                            iconSize: 20,
+                            onPressed: onAdd,
+                            icon: const Icon(Icons.add),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: imageWidth,
+                  child: TravelImageFrame(
+                    imageUrl: result.imageUrl,
+                    semanticLabel: result.name,
+                    fallbackIcon: Icons.travel_explore_outlined,
+                    aspectRatio: null,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchResultCardGrid extends StatelessWidget {
+  const _SearchResultCardGrid({
+    required this.results,
+    required this.onAdd,
+    required this.resultBuilder,
+  });
+
+  final List<TravelSearchResult> results;
+  final ValueChanged<TravelSearchResult> onAdd;
+  final Widget Function(TravelSearchResult result, VoidCallback onAdd)
+  resultBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 8.0;
+        const minCardWidth = 280.0;
+        final maxWidth = constraints.maxWidth;
+        final columnCount = maxWidth < minCardWidth * 2 + spacing ? 1 : 2;
+        final cardWidth = columnCount == 1
+            ? maxWidth
+            : (maxWidth - spacing * (columnCount - 1)) / columnCount;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final result in results)
+              SizedBox(
+                width: cardWidth,
+                child: resultBuilder(result, () => onAdd(result)),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _CompactLabel extends StatelessWidget {
   const _CompactLabel({required this.text});
 
@@ -4861,12 +5075,15 @@ class _SearchResultsPanel extends StatelessWidget {
     required this.error,
     required this.onAdd,
     required this.onOpenMap,
+    this.resultBuilder,
   });
 
   final List<TravelSearchResult> results;
   final String? error;
   final ValueChanged<TravelSearchResult> onAdd;
   final VoidCallback onOpenMap;
+  final Widget Function(TravelSearchResult result, VoidCallback onAdd)?
+  resultBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -4913,18 +5130,25 @@ class _SearchResultsPanel extends StatelessWidget {
           action: '${results.length} results',
         ),
         const SizedBox(height: 8),
-        Card.outlined(
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              for (final result in visibleResults) ...[
-                _SearchResultRow(result: result, onAdd: () => onAdd(result)),
-                if (result != visibleResults.last)
-                  const Divider(height: 1, indent: 12, endIndent: 12),
+        if (resultBuilder == null)
+          Card.outlined(
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                for (final result in visibleResults) ...[
+                  _SearchResultRow(result: result, onAdd: () => onAdd(result)),
+                  if (result != visibleResults.last)
+                    const Divider(height: 1, indent: 12, endIndent: 12),
+                ],
               ],
-            ],
+            ),
+          )
+        else
+          _SearchResultCardGrid(
+            results: visibleResults,
+            onAdd: onAdd,
+            resultBuilder: resultBuilder!,
           ),
-        ),
       ],
     );
   }
@@ -4992,6 +5216,47 @@ String _cleanSearchSubtitle(String value) {
       .replaceAll(' 璺?', ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+}
+
+bool _isUsableTravelImageUrl(String? value) {
+  final url = value?.trim();
+  if (url == null || url.isEmpty) {
+    return false;
+  }
+  final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+  return host != 'picsum.photos' && !host.endsWith('.picsum.photos');
+}
+
+int _travelImageResultScore(TravelSearchResult result, String query) {
+  var score = 0;
+  final name = result.name.trim();
+  final normalizedQuery = query.trim();
+  final intro = result.intro;
+  final subtitle = result.subtitle;
+  final sourceType = result.sourceType;
+  final combined = '$name $intro $subtitle $sourceType';
+
+  if (sourceType == 'scenic_spot') {
+    score += 40;
+  }
+  if (intro.contains('风景名胜')) {
+    score += 24;
+  }
+  if (RegExp(r'景区|风景|公园|古城|巷|湖|山|外滩|博物馆').hasMatch(name)) {
+    score += 12;
+  }
+  if (name == normalizedQuery) {
+    score += 10;
+  } else if (name.contains(normalizedQuery) || normalizedQuery.contains(name)) {
+    score += 5;
+  }
+  if (RegExp(r'地名地址|交通设施|停车场|公交车站|生活服务|售票处').hasMatch(combined)) {
+    score -= 30;
+  }
+  if (RegExp(r'区$|县$|市$').hasMatch(name)) {
+    score -= 18;
+  }
+  return score;
 }
 
 TravelSearchResult _bestSearchMatch(

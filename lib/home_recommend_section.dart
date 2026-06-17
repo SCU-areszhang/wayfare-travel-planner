@@ -9,7 +9,11 @@ import 'scenic_spots_5a.dart'
         featuredScenicTags;
 
 class CollapsibleSection extends StatelessWidget {
-  const CollapsibleSection({required this.title, required this.child, super.key});
+  const CollapsibleSection({
+    required this.title,
+    required this.child,
+    super.key,
+  });
 
   final String title;
   final Widget child;
@@ -48,52 +52,188 @@ class NearbyTripSpots extends StatelessWidget {
   final bool loading;
   final List<TravelSearchResult> spots;
   final ValueChanged<TravelSearchResult> onAdd;
-  final Widget Function(TravelSearchResult result, VoidCallback onAdd) searchResultBuilder;
+  final Widget Function(TravelSearchResult result, VoidCallback onAdd)
+  searchResultBuilder;
 
   @override
   Widget build(BuildContext context) {
-    return Card.outlined(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Near Your Next Trip',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Near Your Next Trip',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w500),
+              ),
+            ),
+            if (city != null)
+              Text(
+                city!,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
                 ),
-                if (city != null)
-                  Text(
-                    city!,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (loading)
+          const LinearProgressIndicator()
+        else
+          _ResponsiveCardWrap(
+            minCardWidth: 280,
+            children: [
+              for (final spot in spots)
+                searchResultBuilder(spot, () => onAdd(spot)),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class TravelImageFrame extends StatelessWidget {
+  const TravelImageFrame({
+    required this.imageUrl,
+    required this.semanticLabel,
+    this.fallbackIcon = Icons.image_outlined,
+    this.aspectRatio = 3 / 2,
+    super.key,
+  });
+
+  final String? imageUrl;
+  final String semanticLabel;
+  final IconData fallbackIcon;
+  final double? aspectRatio;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = _displayableTravelImageUrl(imageUrl);
+    final fallback = _TravelImageFallback(icon: fallbackIcon);
+    final frame = Stack(
+      fit: StackFit.expand,
+      children: [
+        if (url == null || url.isEmpty)
+          fallback
+        else
+          Image.network(
+            url,
+            fit: BoxFit.cover,
+            semanticLabel: semanticLabel,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) {
+                return child;
+              }
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  fallback,
+                  const Center(
+                    child: SizedBox.square(
+                      dimension: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   ),
-              ],
+                ],
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => fallback,
+          ),
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.18),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          if (loading)
-            const LinearProgressIndicator()
-          else
-            Column(
-              children: [
-                for (final spot in spots) ...[
-                  searchResultBuilder(spot, () => onAdd(spot)),
-                  if (spot != spots.last)
-                    const Divider(height: 1, indent: 12, endIndent: 12),
-                ],
-              ],
-            ),
-        ],
+        ),
+      ],
+    );
+    if (aspectRatio == null) {
+      return frame;
+    }
+    return AspectRatio(aspectRatio: aspectRatio!, child: frame);
+  }
+}
+
+String? _displayableTravelImageUrl(String? value) {
+  final url = value?.trim();
+  if (url == null || url.isEmpty) {
+    return null;
+  }
+  final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+  if (host == 'picsum.photos' || host.endsWith('.picsum.photos')) {
+    return null;
+  }
+  return url;
+}
+
+class _TravelImageFallback extends StatelessWidget {
+  const _TravelImageFallback({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            scheme.primaryContainer,
+            scheme.tertiaryContainer.withValues(alpha: 0.82),
+          ],
+        ),
       ),
+      child: Center(
+        child: Icon(icon, color: scheme.onPrimaryContainer, size: 36),
+      ),
+    );
+  }
+}
+
+class _ResponsiveCardWrap extends StatelessWidget {
+  const _ResponsiveCardWrap({required this.children, this.minCardWidth = 280});
+
+  final List<Widget> children;
+  final double minCardWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    if (children.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 8.0;
+        final maxWidth = constraints.maxWidth;
+        final rawColumnCount = (maxWidth / (minCardWidth + spacing)).floor();
+        final columnCount = maxWidth < minCardWidth * 2 + spacing
+            ? 1
+            : rawColumnCount.clamp(2, 3).toInt();
+        final cardWidth = columnCount == 1
+            ? maxWidth
+            : (maxWidth - spacing * (columnCount - 1)) / columnCount;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final child in children)
+              SizedBox(width: cardWidth, child: child),
+          ],
+        );
+      },
     );
   }
 }
@@ -116,7 +256,12 @@ class FeaturedScenicSection extends StatelessWidget {
   final ValueChanged<String> onTagSelected;
   final VoidCallback onBrowseAll;
   final ValueChanged<FeaturedScenicSpot> onSpotSelected;
-  final Widget Function(FeaturedScenicSpot spot, bool busy, VoidCallback onSelected) scenicCardBuilder;
+  final Widget Function(
+    FeaturedScenicSpot spot,
+    bool busy,
+    VoidCallback onSelected,
+  )
+  scenicCardBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -150,6 +295,16 @@ class FeaturedScenicSection extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const ValueKey('scenic-browse-all'),
+            onPressed: busy ? null : () => onBrowseAll(),
+            icon: const Icon(Icons.travel_explore_outlined),
+            label: Text('Browse all $tagTotal "$selectedTag" 5A spots'),
+          ),
+        ),
         if (busy) ...[
           const SizedBox(height: 10),
           const LinearProgressIndicator(),
@@ -167,37 +322,17 @@ class FeaturedScenicSection extends StatelessWidget {
                 ),
             ];
             if (!expanded) {
-              return Column(
-                children: [
-                  for (final child in children) ...[
-                    child,
-                    if (child != children.last) const SizedBox(height: 8),
-                  ],
-                ],
-              );
+              return _ResponsiveCardWrap(children: children);
             }
             return Wrap(
-              spacing: 10,
-              runSpacing: 10,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 for (final child in children)
-                  SizedBox(
-                    width: (constraints.maxWidth - 10) / 2,
-                    child: child,
-                  ),
+                  SizedBox(width: (constraints.maxWidth - 8) / 2, child: child),
               ],
             );
           },
-        ),
-        const SizedBox(height: 6),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            key: const ValueKey('scenic-browse-all'),
-            onPressed: busy ? null : () => onBrowseAll(),
-            icon: const Icon(Icons.travel_explore_outlined),
-            label: Text('Browse all $tagTotal "$selectedTag" 5A spots'),
-          ),
         ),
       ],
     );
@@ -316,87 +451,103 @@ class ScenicTagSheet extends StatelessWidget {
 class FeaturedScenicCard extends StatelessWidget {
   const FeaturedScenicCard({
     required this.spot,
+    required this.imageUrl,
     required this.busy,
     required this.onSelected,
     super.key,
   });
 
   final FeaturedScenicSpot spot;
+  final String? imageUrl;
   final bool busy;
   final VoidCallback onSelected;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card.outlined(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: busy ? null : onSelected,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-          child: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  spot.icon,
-                  color: scheme.onPrimaryContainer,
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      spot.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w500,
+    return SizedBox(
+      height: 112,
+      child: Material(
+        color: scheme.surface.withValues(alpha: 0.42),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        child: InkWell(
+          onTap: busy ? null : onSelected,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final imageWidth = constraints.maxHeight * 4 / 3;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            spot.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${spot.city} · ${spot.level} · ${spot.tags.join(" / ")}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 2),
+                          Expanded(
+                            child: Text(
+                              spot.summary,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                          SizedBox.square(
+                            dimension: 34,
+                            child: IconButton.filled(
+                              key: ValueKey(
+                                'featured-scenic-add-${spot.query}',
+                              ),
+                              tooltip: 'Add scenic spot',
+                              padding: EdgeInsets.zero,
+                              iconSize: 20,
+                              onPressed: busy ? null : onSelected,
+                              icon: busy
+                                  ? const SizedBox.square(
+                                      dimension: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.add),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${spot.city} · ${spot.level} · ${spot.tags.join(" / ")}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
+                  ),
+                  SizedBox(
+                    width: imageWidth,
+                    child: TravelImageFrame(
+                      imageUrl: imageUrl,
+                      semanticLabel: spot.name,
+                      fallbackIcon: spot.icon,
+                      aspectRatio: null,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      spot.summary,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox.square(
-                dimension: 42,
-                child: IconButton.filled(
-                  key: ValueKey('featured-scenic-add-${spot.query}'),
-                  tooltip: 'Add scenic spot',
-                  onPressed: busy ? null : onSelected,
-                  icon: busy
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.add),
-                ),
-              ),
-            ],
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -407,6 +558,7 @@ class FeaturedScenicCard extends StatelessWidget {
 class CityWalkTemplateCard extends StatelessWidget {
   const CityWalkTemplateCard({
     required this.template,
+    required this.imageUrl,
     required this.onCopy,
     required this.metricPillBuilder,
     required this.stopPreviewBuilder,
@@ -414,9 +566,16 @@ class CityWalkTemplateCard extends StatelessWidget {
   });
 
   final CityWalkTemplate template;
+  final String? imageUrl;
   final VoidCallback onCopy;
-  final Widget Function({required IconData icon, required String label, bool filled}) metricPillBuilder;
-  final Widget Function({required int index, required CityWalkStop stop}) stopPreviewBuilder;
+  final Widget Function({
+    required IconData icon,
+    required String label,
+    bool filled,
+  })
+  metricPillBuilder;
+  final Widget Function({required int index, required CityWalkStop stop})
+  stopPreviewBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -424,97 +583,106 @@ class CityWalkTemplateCard extends StatelessWidget {
     final previewStops = template.stops.take(3).toList(growable: false);
     return Card.filled(
       color: scheme.surfaceContainerHighest.withValues(alpha: 0.52),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TravelImageFrame(
+            imageUrl: imageUrl,
+            semanticLabel: template.title,
+            fallbackIcon: Icons.directions_walk,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.directions_walk,
-                    color: scheme.onPrimaryContainer,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            template.title,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            template.summary,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.tonalIcon(
+                      key: ValueKey('copy-citywalk-${template.id}'),
+                      onPressed: onCopy,
+                      icon: const Icon(Icons.content_copy),
+                      label: const Text('Copy'),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        template.title,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    metricPillBuilder(
+                      icon: Icons.location_city_outlined,
+                      label: template.city,
+                      filled: true,
+                    ),
+                    metricPillBuilder(
+                      icon: Icons.schedule_outlined,
+                      label: template.duration,
+                    ),
+                    metricPillBuilder(
+                      icon: Icons.route_outlined,
+                      label: '${template.stops.length} stops',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Divider(color: scheme.outlineVariant),
+                const SizedBox(height: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (
+                      var index = 0;
+                      index < previewStops.length;
+                      index++
+                    ) ...[
+                      stopPreviewBuilder(
+                        index: index + 1,
+                        stop: previewStops[index],
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        template.summary,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
+                      if (index != previewStops.length - 1)
+                        const SizedBox(height: 8),
                     ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FilledButton.tonalIcon(
-                  key: ValueKey('copy-citywalk-${template.id}'),
-                  onPressed: onCopy,
-                  icon: const Icon(Icons.content_copy),
-                  label: const Text('Copy'),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                metricPillBuilder(
-                  icon: Icons.location_city_outlined,
-                  label: template.city,
-                  filled: true,
-                ),
-                metricPillBuilder(
-                  icon: Icons.schedule_outlined,
-                  label: template.duration,
-                ),
-                metricPillBuilder(
-                  icon: Icons.route_outlined,
-                  label: '${template.stops.length} stops',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Divider(color: scheme.outlineVariant),
-            const SizedBox(height: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var index = 0; index < previewStops.length; index++) ...[
-                  stopPreviewBuilder(index: index + 1, stop: previewStops[index]),
-                  if (index != previewStops.length - 1)
-                    const SizedBox(height: 8),
-                ],
-              ],
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
 class CityWalkStopPreview extends StatelessWidget {
-  const CityWalkStopPreview({required this.index, required this.stop, super.key});
+  const CityWalkStopPreview({
+    required this.index,
+    required this.stop,
+    super.key,
+  });
 
   final int index;
   final CityWalkStop stop;

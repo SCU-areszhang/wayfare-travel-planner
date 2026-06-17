@@ -22,7 +22,9 @@ void main() {
     expect(find.text('Plan'), findsOneWidget);
   });
 
-  testWidgets('home search results use compact add buttons', (tester) async {
+  testWidgets('home search results use image cards with compact add buttons', (
+    tester,
+  ) async {
     final backend = _FakeBackend();
     await _pumpLoggedInApp(tester, backend);
 
@@ -37,6 +39,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Quick Add'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('home-search-result-card-spot-west')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('search-result-add-spot-west')),
       findsOneWidget,
@@ -95,48 +101,47 @@ void main() {
     );
   });
 
-  testWidgets(
-    'citywalk copy backfills the day city when it is a placeholder',
-    (tester) async {
-      final tomorrow = DateTime.now().add(const Duration(days: 1));
-      final backend = _FakeBackend(
-        days: [
-          ItineraryDay(
-            id: 'day-empty-city',
-            title: 'Day 1',
-            date: _testIsoDate(tomorrow),
-            // Placeholder city — the same value _ensureDefaultDay would
-            // create when there's no resolved city yet.
-            city: 'Current city',
-            reminder: '',
-            items: [],
-          ),
-        ],
-      );
-      await _pumpLoggedInApp(tester, backend);
+  testWidgets('citywalk copy backfills the day city when it is a placeholder', (
+    tester,
+  ) async {
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
+    final backend = _FakeBackend(
+      days: [
+        ItineraryDay(
+          id: 'day-empty-city',
+          title: 'Day 1',
+          date: _testIsoDate(tomorrow),
+          // Placeholder city — the same value _ensureDefaultDay would
+          // create when there's no resolved city yet.
+          city: 'Current city',
+          reminder: '',
+          items: [],
+        ),
+      ],
+    );
+    await _pumpLoggedInApp(tester, backend);
 
-      await tester.tap(find.text('Hot Citywalks'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Hot Citywalks'));
+    await tester.pumpAndSettle();
 
-      final copyButton = find.byKey(
-        const ValueKey('copy-citywalk-citywalk-chengdu-kuanzhai'),
-      );
-      await tester.ensureVisible(copyButton.first);
-      await tester.pumpAndSettle();
-      await tester.tap(copyButton.first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Copy to selected day'));
-      await tester.pumpAndSettle();
+    final copyButton = find.byKey(
+      const ValueKey('copy-citywalk-citywalk-chengdu-kuanzhai'),
+    );
+    await tester.ensureVisible(copyButton.first);
+    await tester.pumpAndSettle();
+    await tester.tap(copyButton.first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Copy to selected day'));
+    await tester.pumpAndSettle();
 
-      expect(
-        backend.updatedDayPatches,
-        hasLength(1),
-        reason: 'CityWalk copy should backfill the day city.',
-      );
-      expect(backend.updatedDayPatches.single.dayId, 'day-empty-city');
-      expect(backend.updatedDayPatches.single.city, '成都');
-    },
-  );
+    expect(
+      backend.updatedDayPatches,
+      hasLength(1),
+      reason: 'CityWalk copy should backfill the day city.',
+    );
+    expect(backend.updatedDayPatches.single.dayId, 'day-empty-city');
+    expect(backend.updatedDayPatches.single.city, '成都');
+  });
 
   testWidgets('home hero selects nearest unfinished itinerary item', (
     tester,
@@ -444,9 +449,7 @@ void main() {
 
     // Drag the first stop's handle down past the second to reorder it.
     final firstHandle = find.byTooltip('Drag to move within this date').first;
-    final gesture = await tester.startGesture(
-      tester.getCenter(firstHandle),
-    );
+    final gesture = await tester.startGesture(tester.getCenter(firstHandle));
     await tester.pump(const Duration(milliseconds: 20));
     for (var i = 0; i < 10; i++) {
       await gesture.moveBy(const Offset(0, 16));
@@ -754,11 +757,20 @@ class _FakeBackend implements WayfareBackend {
   }) async {
     final name = fallbackName?.trim();
     String? city;
-    if (point.latitude > 30 && point.latitude < 31 && point.longitude > 103 && point.longitude < 105) {
+    if (point.latitude > 30 &&
+        point.latitude < 31 &&
+        point.longitude > 103 &&
+        point.longitude < 105) {
       city = '成都';
-    } else if (point.latitude > 39 && point.latitude < 40 && point.longitude > 115 && point.longitude < 117) {
+    } else if (point.latitude > 39 &&
+        point.latitude < 40 &&
+        point.longitude > 115 &&
+        point.longitude < 117) {
       city = '北京';
-    } else if (point.latitude > 31 && point.latitude < 32 && point.longitude > 120 && point.longitude < 122) {
+    } else if (point.latitude > 31 &&
+        point.latitude < 32 &&
+        point.longitude > 120 &&
+        point.longitude < 122) {
       city = '上海';
     }
     return AmapPickResult(

@@ -4,6 +4,7 @@ class _ItineraryScreen extends StatelessWidget {
   const _ItineraryScreen({
     required this.title,
     required this.days,
+    required this.onSearch,
     required this.onAddDay,
     required this.onDeleteDay,
     required this.onEdit,
@@ -16,6 +17,7 @@ class _ItineraryScreen extends StatelessWidget {
 
   final String title;
   final List<ItineraryDay> days;
+  final Future<List<TravelSearchResult>> Function(String query) onSearch;
   final VoidCallback onAddDay;
   final ValueChanged<ItineraryDay> onDeleteDay;
   final ValueChanged<ItineraryItem> onEdit;
@@ -135,6 +137,7 @@ class _ItineraryScreen extends StatelessWidget {
             key: ValueKey(days[dayIndex].id),
             day: days[dayIndex],
             dayIndex: dayIndex,
+            onSearch: onSearch,
             onDeleteDay: () => onDeleteDay(days[dayIndex]),
             onEdit: onEdit,
             onMove: onMove,
@@ -155,6 +158,7 @@ class _ItineraryDayRouteCard extends StatelessWidget {
     super.key,
     required this.day,
     required this.dayIndex,
+    required this.onSearch,
     required this.onDeleteDay,
     required this.onEdit,
     required this.onMove,
@@ -166,6 +170,7 @@ class _ItineraryDayRouteCard extends StatelessWidget {
 
   final ItineraryDay day;
   final int dayIndex;
+  final Future<List<TravelSearchResult>> Function(String query) onSearch;
   final VoidCallback onDeleteDay;
   final ValueChanged<ItineraryItem> onEdit;
   final ValueChanged<ItineraryItem> onMove;
@@ -283,6 +288,7 @@ class _ItineraryDayRouteCard extends StatelessWidget {
                     child: _ItineraryItemCard(
                       item: item,
                       index: index,
+                      onSearch: onSearch,
                       onEdit: () => onEdit(item),
                       onMove: () => onMove(item),
                       onDelete: () => onDelete(item),
@@ -341,10 +347,11 @@ class _ItineraryEmptyStopPreview extends StatelessWidget {
 
 enum _ItemAction { move, duplicate, delete }
 
-class _ItineraryItemCard extends StatelessWidget {
+class _ItineraryItemCard extends StatefulWidget {
   const _ItineraryItemCard({
     required this.item,
     required this.index,
+    required this.onSearch,
     required this.onEdit,
     required this.onMove,
     required this.onDelete,
@@ -354,6 +361,7 @@ class _ItineraryItemCard extends StatelessWidget {
 
   final ItineraryItem item;
   final int index;
+  final Future<List<TravelSearchResult>> Function(String query) onSearch;
   final VoidCallback onEdit;
   final VoidCallback onMove;
   final VoidCallback onDelete;
@@ -361,137 +369,249 @@ class _ItineraryItemCard extends StatelessWidget {
   final VoidCallback onOpenMap;
 
   @override
+  State<_ItineraryItemCard> createState() => _ItineraryItemCardState();
+}
+
+class _ItineraryItemCardState extends State<_ItineraryItemCard> {
+  String? _imageUrl;
+  String? _imageLoadKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ItineraryItemCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.id != widget.item.id ||
+        oldWidget.item.place != widget.item.place ||
+        oldWidget.item.city != widget.item.city) {
+      _imageUrl = null;
+      _loadImage();
+    }
+  }
+
+  Future<void> _loadImage() async {
+    final query = _itineraryItemImageQuery(widget.item);
+    if (query.isEmpty) {
+      return;
+    }
+    final loadKey = '${widget.item.id}:$query';
+    if (_imageLoadKey == loadKey) {
+      return;
+    }
+    _imageLoadKey = loadKey;
+    String? imageUrl;
+    try {
+      final results = await widget.onSearch(query);
+      TravelSearchResult? bestResult;
+      var bestScore = -1000;
+      for (final result in results) {
+        if (_isUsableTravelImageUrl(result.imageUrl)) {
+          final score = _travelImageResultScore(result, query);
+          if (bestResult == null || score > bestScore) {
+            bestResult = result;
+            bestScore = score;
+          }
+        }
+      }
+      imageUrl = bestResult?.imageUrl?.trim();
+    } catch (_) {
+      imageUrl = null;
+    }
+    if (!mounted || _imageLoadKey != loadKey) {
+      return;
+    }
+    setState(() => _imageUrl = imageUrl);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 26,
-          height: 26,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: scheme.secondaryContainer,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            '${index + 1}',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: scheme.onSecondaryContainer,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+    return SizedBox(
+      height: 132,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surface.withValues(alpha: 0.42),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: scheme.outlineVariant),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                item.place,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '${item.time} | ${item.activity}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              if (item.note.trim().isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(
-                  item.note,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 6),
-              Row(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final imageWidth = constraints.maxHeight * 4 / 3;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  IconButton(
-                    tooltip: 'Edit',
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  IconButton(
-                    tooltip: 'Open map',
-                    onPressed: onOpenMap,
-                    icon: const Icon(Icons.map_outlined),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  PopupMenuButton<_ItemAction>(
-                    tooltip: 'More actions',
-                    icon: const Icon(Icons.more_vert),
-                    onSelected: (action) {
-                      switch (action) {
-                        case _ItemAction.move:
-                          onMove();
-                        case _ItemAction.duplicate:
-                          onDuplicate();
-                        case _ItemAction.delete:
-                          onDelete();
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: _ItemAction.move,
-                        child: ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.drive_file_move_outlined),
-                          title: Text('Move to date'),
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _ItemAction.duplicate,
-                        child: ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.copy_outlined),
-                          title: Text('Duplicate'),
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _ItemAction.delete,
-                        child: ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.delete_outline),
-                          title: Text('Delete'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Tooltip(
-                    message: 'Drag to move within this date',
-                    child: ReorderableDragStartListener(
-                      index: index,
-                      child: SizedBox.square(
-                        dimension: 40,
-                        child: Icon(
-                          Icons.drag_indicator,
-                          color: scheme.onSurfaceVariant,
-                        ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 26,
+                            height: 26,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: scheme.secondaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${widget.index + 1}',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: scheme.onSecondaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.item.place,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(fontWeight: FontWeight.w500),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${widget.item.time} | ${widget.item.activity}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.labelMedium
+                                      ?.copyWith(
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                ),
+                                if (widget.item.note.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    widget.item.note,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                  ),
+                                ],
+                                const Spacer(),
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Edit',
+                                      onPressed: widget.onEdit,
+                                      icon: const Icon(Icons.edit_outlined),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Open map',
+                                      onPressed: widget.onOpenMap,
+                                      icon: const Icon(Icons.map_outlined),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    PopupMenuButton<_ItemAction>(
+                                      tooltip: 'More actions',
+                                      icon: const Icon(Icons.more_vert),
+                                      onSelected: (action) {
+                                        switch (action) {
+                                          case _ItemAction.move:
+                                            widget.onMove();
+                                          case _ItemAction.duplicate:
+                                            widget.onDuplicate();
+                                          case _ItemAction.delete:
+                                            widget.onDelete();
+                                        }
+                                      },
+                                      itemBuilder: (_) => const [
+                                        PopupMenuItem(
+                                          value: _ItemAction.move,
+                                          child: ListTile(
+                                            dense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            leading: Icon(
+                                              Icons.drive_file_move_outlined,
+                                            ),
+                                            title: Text('Move to date'),
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: _ItemAction.duplicate,
+                                          child: ListTile(
+                                            dense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            leading: Icon(Icons.copy_outlined),
+                                            title: Text('Duplicate'),
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: _ItemAction.delete,
+                                          child: ListTile(
+                                            dense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            leading: Icon(Icons.delete_outline),
+                                            title: Text('Delete'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Tooltip(
+                                      message: 'Drag to move within this date',
+                                      child: ReorderableDragStartListener(
+                                        index: widget.index,
+                                        child: SizedBox.square(
+                                          dimension: 40,
+                                          child: Icon(
+                                            Icons.drag_indicator,
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
+                  SizedBox(
+                    width: imageWidth,
+                    child: TravelImageFrame(
+                      imageUrl: _imageUrl,
+                      semanticLabel: widget.item.place,
+                      fallbackIcon: Icons.place_outlined,
+                      aspectRatio: null,
+                    ),
+                  ),
                 ],
-              ),
-            ],
+              );
+            },
           ),
         ),
-      ],
+      ),
     );
   }
+}
+
+String _itineraryItemImageQuery(ItineraryItem item) {
+  final place = item.place.trim();
+  if (place.isEmpty) {
+    return '';
+  }
+  final city = item.city.trim();
+  if (city.isEmpty || place.contains(city)) {
+    return place;
+  }
+  return '$city $place';
 }

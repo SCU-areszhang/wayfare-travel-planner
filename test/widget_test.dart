@@ -374,7 +374,7 @@ void main() {
     expect(find.widgetWithText(Chip, 'Saved'), findsNothing);
     expect(find.text('Test Trip'), findsOneWidget);
     expect(find.byTooltip('More actions'), findsOneWidget);
-    expect(find.byTooltip('Drag to move within this date'), findsNothing);
+    expect(find.byTooltip('Drag to move within this date'), findsOneWidget);
 
     // Move was promoted into the overflow menu in the mobile UI pass.
     await tester.tap(find.byTooltip('More actions'));

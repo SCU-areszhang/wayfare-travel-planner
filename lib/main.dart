@@ -2265,6 +2265,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
           onEdit: (item) => _showEditItemSheet(item: item),
           onMove: _showMoveItemSheet,
           onDelete: _confirmDelete,
+          onReorder: _reorderItem,
           onDuplicate: _duplicateItem,
           onOpenMap: () => setState(() => _tab = AppTab.explore),
         ),
@@ -2860,6 +2861,59 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
         );
       },
     );
+  }
+
+  // Manually re-order a stop within a single day. Stops are stored in an
+  // explicit list order (the backend persists an `order` per item and does not
+  // re-sort by time), so a drag here is authoritative and survives reloads.
+  // _sortRepositoryDays only re-sorts the *days* by date — it leaves each day's
+  // item order untouched — so calling it afterwards refreshes the map pins
+  // without fighting the new order.
+  Future<void> _reorderItem(
+    ItineraryDay day,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final itineraryId = _repository.activeItineraryId;
+    if (itineraryId == null) {
+      _toast('Create or load a backend itinerary first.');
+      return;
+    }
+    if (oldIndex == newIndex) {
+      return;
+    }
+    final before = List<ItineraryItem>.from(day.items);
+    setState(() {
+      final item = day.items.removeAt(oldIndex);
+      day.items.insert(newIndex, item);
+      _sortRepositoryDays(_repository);
+    });
+    final reordered = await _runBackendMutation(
+      () => widget.backend.reorderItems(
+        itineraryId,
+        day.id,
+        day.items.map((item) => item.id).toList(),
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    if (reordered == null) {
+      // Backend rejected the move; roll back to the pre-drag order.
+      setState(() {
+        day.items
+          ..clear()
+          ..addAll(before);
+        _sortRepositoryDays(_repository);
+      });
+      return;
+    }
+    setState(() {
+      day.items
+        ..clear()
+        ..addAll(reordered);
+      _sortRepositoryDays(_repository);
+    });
   }
 
   Future<void> _showMoveItemSheet(ItineraryItem item) async {

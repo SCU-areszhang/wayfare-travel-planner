@@ -9,6 +9,7 @@ class _ItineraryScreen extends StatelessWidget {
     required this.onEdit,
     required this.onMove,
     required this.onDelete,
+    required this.onReorder,
     required this.onDuplicate,
     required this.onOpenMap,
   });
@@ -20,6 +21,7 @@ class _ItineraryScreen extends StatelessWidget {
   final ValueChanged<ItineraryItem> onEdit;
   final ValueChanged<ItineraryItem> onMove;
   final ValueChanged<ItineraryItem> onDelete;
+  final void Function(ItineraryDay day, int oldIndex, int newIndex) onReorder;
   final void Function(ItineraryDay day, ItineraryItem item) onDuplicate;
   final VoidCallback onOpenMap;
 
@@ -136,6 +138,7 @@ class _ItineraryScreen extends StatelessWidget {
             onEdit: onEdit,
             onMove: onMove,
             onDelete: onDelete,
+            onReorder: onReorder,
             onDuplicate: onDuplicate,
             onOpenMap: onOpenMap,
           ),
@@ -154,6 +157,7 @@ class _ItineraryDayRouteCard extends StatelessWidget {
     required this.onEdit,
     required this.onMove,
     required this.onDelete,
+    required this.onReorder,
     required this.onDuplicate,
     required this.onOpenMap,
   });
@@ -164,6 +168,7 @@ class _ItineraryDayRouteCard extends StatelessWidget {
   final ValueChanged<ItineraryItem> onEdit;
   final ValueChanged<ItineraryItem> onMove;
   final ValueChanged<ItineraryItem> onDelete;
+  final void Function(ItineraryDay day, int oldIndex, int newIndex) onReorder;
   final void Function(ItineraryDay day, ItineraryItem item) onDuplicate;
   final VoidCallback onOpenMap;
 
@@ -250,25 +255,40 @@ class _ItineraryDayRouteCard extends StatelessWidget {
             if (day.items.isEmpty)
               _ItineraryEmptyStopPreview(onOpenMap: onOpenMap)
             else
-              Column(
-                children: [
-                  for (var index = 0; index < day.items.length; index++)
-                    Padding(
-                      key: ValueKey(day.items[index].id),
-                      padding: EdgeInsets.only(
-                        bottom: index == day.items.length - 1 ? 0 : 8,
-                      ),
-                      child: _ItineraryItemCard(
-                        item: day.items[index],
-                        index: index,
-                        onEdit: () => onEdit(day.items[index]),
-                        onMove: () => onMove(day.items[index]),
-                        onDelete: () => onDelete(day.items[index]),
-                        onDuplicate: () => onDuplicate(day, day.items[index]),
-                        onOpenMap: onOpenMap,
-                      ),
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                itemCount: day.items.length,
+                // onReorderItem only exists on Flutter >=3.42, and this project
+                // must still build on 3.41 stable. Stay on the deprecated
+                // onReorder, which reports newIndex before the dragged item is
+                // removed and therefore needs the classic adjustment.
+                // ignore: deprecated_member_use
+                onReorder: (oldIndex, newIndex) {
+                  if (newIndex > oldIndex) {
+                    newIndex -= 1;
+                  }
+                  onReorder(day, oldIndex, newIndex);
+                },
+                itemBuilder: (context, index) {
+                  final item = day.items[index];
+                  return Padding(
+                    key: ValueKey(item.id),
+                    padding: EdgeInsets.only(
+                      bottom: index == day.items.length - 1 ? 0 : 8,
                     ),
-                ],
+                    child: _ItineraryItemCard(
+                      item: item,
+                      index: index,
+                      onEdit: () => onEdit(item),
+                      onMove: () => onMove(item),
+                      onDelete: () => onDelete(item),
+                      onDuplicate: () => onDuplicate(day, item),
+                      onOpenMap: onOpenMap,
+                    ),
+                  );
+                },
               ),
           ],
         ),
@@ -450,6 +470,19 @@ class _ItineraryItemCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                  Tooltip(
+                    message: 'Drag to move within this date',
+                    child: ReorderableDragStartListener(
+                      index: index,
+                      child: SizedBox.square(
+                        dimension: 40,
+                        child: Icon(
+                          Icons.drag_indicator,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),

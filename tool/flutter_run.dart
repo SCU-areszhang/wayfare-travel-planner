@@ -14,14 +14,25 @@ Future<void> main(List<String> arguments) async {
   }
 
   final keys = parseAmapLocalKeys(keyFile.readAsStringSync());
+
   if (keys.webJsKey == null || keys.webJsKey!.isEmpty) {
     stderr.writeln('Missing Wayfare_WebJS key in $keyFile');
     exit(1);
   }
 
-  final device = await _detectWebDevice();
+  if (keys.webJsSecurityCode == null || keys.webJsSecurityCode!.isEmpty) {
+    stderr.writeln(
+      'Warning: Missing Security_code in $keyFile.\n'
+      'AMap JS API 2.0 requires a security code. The map may fail to load.\n'
+      'Add a line like "Security_code, <your_code>" to $keyFile.',
+    );
+  }
+
+  final device = _optionValue(arguments, '-d') ??
+      _optionValue(arguments, '--device-id') ??
+      await _detectDevice();
   if (device == null) {
-    stderr.writeln('No web device found. Install Chrome or Edge.');
+    stderr.writeln('No supported device found. Connect a device or install Chrome/Edge.');
     exit(1);
   }
 
@@ -40,15 +51,23 @@ Future<void> main(List<String> arguments) async {
   }
   defineFile.writeAsStringSync(buffer.toString());
 
+  final filteredArgs = _filterFlag(arguments, ['-d', '--device-id']);
+
   final runArgs = [
     'run',
     '-d',
     device,
     '--dart-define-from-file=${defineFile.path}',
-    ...arguments,
+    ...filteredArgs,
   ];
 
-  stdout.writeln('Starting flutter run with AMap keys from $keyFile');
+  stdout.writeln('Starting flutter run on device $device');
+  stdout.writeln('  AMap keys loaded from $keyFile');
+  if (keys.webJsSecurityCode != null) {
+    stdout.writeln('  Security code: present');
+  } else {
+    stdout.writeln('  Security code: MISSING — map may not load');
+  }
 
   final process = await Process.start(
     Platform.isWindows ? 'cmd.exe' : 'flutter',
@@ -63,15 +82,17 @@ Future<void> main(List<String> arguments) async {
     exit(0);
   });
 
-  final code = await process.exitCode;
+  final exitCode = await process.exitCode;
   tempDir.deleteSync(recursive: true);
-  exit(code);
+  exit(exitCode);
 }
 
-Future<String?> _detectWebDevice() async {
+Future<String?> _detectDevice() async {
   final process = await Process.start(
     Platform.isWindows ? 'cmd.exe' : 'flutter',
-    Platform.isWindows ? ['/c', 'flutter', 'devices', '--machine'] : ['devices', '--machine'],
+    Platform.isWindows
+        ? ['/c', 'flutter', 'devices', '--machine']
+        : ['devices', '--machine'],
     mode: ProcessStartMode.normal,
     workingDirectory: Directory.current.path,
   );
@@ -79,13 +100,16 @@ Future<String?> _detectWebDevice() async {
   await process.exitCode;
 
   final devices = jsonDecode(output) as List;
+
+  // Priority: Android > iOS > Web > any other.
+  String? fallback;
   for (final d in devices) {
     final platform = d['targetPlatform'] as String? ?? '';
-    if (platform.startsWith('web-')) {
-      return d['id'] as String;
-    }
+    if (platform.startsWith('android')) return d['id'] as String;
+    if (platform.startsWith('ios')) return d['id'] as String;
+    if (platform.startsWith('web-')) fallback ??= d['id'] as String;
   }
-  return null;
+  return fallback ?? (devices.isNotEmpty ? devices.first['id'] as String : null);
 }
 
 File? _findAmapKeyFile() {
@@ -96,4 +120,37 @@ File? _findAmapKeyFile() {
     }
   }
   return null;
+}
+
+String? _optionValue(List<String> args, String name) {
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] == name && i + 1 < args.length) return args[i + 1];
+    if (args[i].startsWith('$name=')) return args[i].substring(name.length + 1);
+  }
+  return null;
+}
+
+/// Remove [flags] and their values from [args] so they don't leak to Flutter.
+List<String> _filterFlag(List<String> args, List<String> flags) {
+  final result = <String>[];
+  var skipNext = false;
+  for (final arg in args) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (flags.contains(arg)) {
+      skipNext = true;
+      continue;
+    }
+    var matched = false;
+    for (final flag in flags) {
+      if (arg.startsWith('$flag=')) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) result.add(arg);
+  }
+  return result;
 }

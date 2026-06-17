@@ -24,11 +24,16 @@ Reads AMap keys from Amap.csv automatically.
   final keys = parseAmapLocalKeys(keyFile.readAsStringSync());
   final apiBase = _optionValue(arguments, '--api-base') ?? await _detectLocalApiBase();
 
+  if (keys.androidKey == null || keys.androidKey!.isEmpty) {
+    stderr.writeln('Missing Wayfare_Android key in $keyFile. Android build requires an AMap Android key.');
+    exit(1);
+  }
+
   final defines = <String, String>{
     'WAYFARE_API_BASE': apiBase,
     if (keys.webJsKey case final k?) 'AMAP_JS_KEY': k,
     if (keys.webJsSecurityCode case final k?) 'AMAP_JS_SECURITY_CODE': k,
-    if (keys.androidKey case final k?) 'AMAP_ANDROID_KEY': k,
+    'AMAP_ANDROID_KEY': keys.androidKey!,
     if (keys.iosKey case final k?) 'AMAP_IOS_KEY': k,
   };
 
@@ -40,11 +45,13 @@ Reads AMap keys from Amap.csv automatically.
     stdout.writeln('  ${entry.key}=$masked');
   }
 
+  final filteredArgs = _filterCustomArgs(arguments, ['--api-base']);
+
   final buildArgs = <String>[
     'build', 'apk', '--release', '--split-per-abi', '--no-pub',
     for (final entry in defines.entries)
       '--dart-define=${entry.key}=${entry.value}',
-    ...arguments.where((a) => !a.startsWith('--api-base')),
+    ...filteredArgs,
   ];
 
   final process = await Process.start(
@@ -96,10 +103,37 @@ Future<String> _detectLocalIp() async {
   return '127.0.0.1';
 }
 
-String? _optionValue(List<String> arguments, String name) {
-  for (var i = 0; i < arguments.length; i++) {
-    if (arguments[i] == name && i + 1 < arguments.length) return arguments[i + 1];
-    if (arguments[i].startsWith('$name=')) return arguments[i].substring(name.length + 1);
+/// Extract the value of [name] from [args], supporting both
+/// `--name value` and `--name=value` forms.
+String? _optionValue(List<String> args, String name) {
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] == name && i + 1 < args.length) return args[i + 1];
+    if (args[i].startsWith('$name=')) return args[i].substring(name.length + 1);
   }
   return null;
+}
+
+/// Remove custom flags *and their values* so they never leak to Flutter.
+List<String> _filterCustomArgs(List<String> args, List<String> flagNames) {
+  final result = <String>[];
+  var skipNext = false;
+  for (final arg in args) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (flagNames.contains(arg)) {
+      skipNext = true;
+      continue;
+    }
+    var matched = false;
+    for (final flag in flagNames) {
+      if (arg.startsWith('$flag=')) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) result.add(arg);
+  }
+  return result;
 }

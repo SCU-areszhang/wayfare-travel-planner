@@ -27,10 +27,19 @@ Reads AMAP_WEB_SERVICE_KEY from Amap.csv automatically.
     exit(1);
   }
 
+  // Check if the port is already in use.
+  final inUse = await _isPortInUse(int.parse(port));
+  if (inUse) {
+    stderr.writeln(
+      'Port $port is already in use. Another backend instance may be running.\n'
+      'Use --port <number> to start on a different port, or kill the existing process.',
+    );
+    exit(1);
+  }
+
   final keyFile = _findAmapKeyFile();
-  final webSvcKey = keyFile != null
-      ? parseAmapLocalKeys(keyFile.readAsStringSync()).webServiceKey
-      : null;
+  final keys = keyFile != null ? parseAmapLocalKeys(keyFile.readAsStringSync()) : null;
+  final webSvcKey = keys?.webServiceKey;
 
   final env = {
     'PORT': port,
@@ -42,7 +51,11 @@ Reads AMAP_WEB_SERVICE_KEY from Amap.csv automatically.
   };
 
   stdout.writeln('Starting backend on $host:$port');
-  if (webSvcKey != null) stdout.writeln('  AMap Web Service key loaded from Amap.csv');
+  if (webSvcKey != null) {
+    stdout.writeln('  AMap Web Service key loaded from $keyFile');
+  } else {
+    stdout.writeln('  Warning: No AMap Web Service key found. Search and route features may not work.');
+  }
 
   final process = await Process.start(
     Platform.resolvedExecutable,
@@ -59,6 +72,16 @@ Reads AMAP_WEB_SERVICE_KEY from Amap.csv automatically.
 
   final code = await process.exitCode;
   exit(code);
+}
+
+Future<bool> _isPortInUse(int port) async {
+  try {
+    final socket = await ServerSocket.bind(InternetAddress.anyIPv4, port);
+    await socket.close();
+    return false;
+  } on SocketException {
+    return true;
+  }
 }
 
 File? _findAmapKeyFile() {

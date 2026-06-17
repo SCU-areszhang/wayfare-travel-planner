@@ -394,6 +394,85 @@ void main() {
     expect(backend.updateItemCalls.single.targetDayId, 'day-target-2');
   });
 
+  testWidgets('dragging a stop reorders it without throwing', (tester) async {
+    final date = _testIsoDate(DateTime.now().add(const Duration(days: 1)));
+    final backend = _FakeBackend(
+      days: [
+        ItineraryDay(
+          id: 'day-multi',
+          title: date,
+          date: date,
+          city: 'Chengdu',
+          reminder: '',
+          items: [
+            ItineraryItem(
+              id: 'stop-a',
+              time: '09:00',
+              place: 'Chengdu Spot',
+              activity: 'Walk',
+              note: '',
+              status: 'Saved',
+              city: 'Chengdu',
+            ),
+            ItineraryItem(
+              id: 'stop-b',
+              time: '11:00',
+              place: 'Beijing Spot',
+              activity: 'Visit',
+              note: '',
+              status: 'Saved',
+              city: 'Beijing',
+            ),
+            ItineraryItem(
+              id: 'stop-c',
+              time: '14:00',
+              place: 'Shanghai Spot',
+              activity: 'Tour',
+              note: '',
+              status: 'Saved',
+              city: 'Shanghai',
+            ),
+          ],
+        ),
+      ],
+    );
+    // Backend latency lands the post-reorder rebuild mid-drop-animation,
+    // which is where the web build hits the framework element assertion.
+    backend.reorderLatency = const Duration(milliseconds: 80);
+    await _pumpLoggedInApp(tester, backend);
+    await _tapRailDestination(tester, 'Itinerary');
+
+    // Drag the first stop's handle down past the second to reorder it.
+    final firstHandle = find.byTooltip('Drag to move within this date').first;
+    final gesture = await tester.startGesture(
+      tester.getCenter(firstHandle),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+    for (var i = 0; i < 10; i++) {
+      await gesture.moveBy(const Offset(0, 16));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await gesture.up();
+    // Pump in small steps so the delayed backend response overlaps the
+    // drop animation rather than landing after pumpAndSettle quiesces it.
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(backend.reorderCalls, isNotEmpty);
+    expect(backend.reorderCalls.last.itemIds.first, isNot('stop-a'));
+    // The day's current city follows the stop now shown at the top.
+    final movedFirstId = backend.reorderCalls.last.itemIds.first;
+    final expectedCity = {
+      'stop-a': 'Chengdu',
+      'stop-b': 'Beijing',
+      'stop-c': 'Shanghai',
+    }[movedFirstId];
+    expect(backend.updatedDayPatches.last.city, expectedCity);
+  });
+
   testWidgets('saved itinerary selection switches the active itinerary', (
     tester,
   ) async {
@@ -515,6 +594,13 @@ class _AddItemCall {
 
   final String dayId;
   final String place;
+}
+
+class _ReorderCall {
+  const _ReorderCall({required this.dayId, required this.itemIds});
+
+  final String dayId;
+  final List<String> itemIds;
 }
 
 class _UpdateItemCall {
@@ -789,12 +875,46 @@ class _FakeBackend implements WayfareBackend {
     throw StateError('Unknown day $dayId');
   }
 
+  final reorderCalls = <_ReorderCall>[];
+  Duration reorderLatency = Duration.zero;
+
   @override
   Future<List<ItineraryItem>> reorderItems(
     String itineraryId,
     String dayId,
     List<String> itemIds,
   ) async {
+    reorderCalls.add(_ReorderCall(dayId: dayId, itemIds: itemIds));
+    if (reorderLatency > Duration.zero) {
+      await Future<void>.delayed(reorderLatency);
+    }
+    for (final day in days) {
+      if (day.id != dayId) {
+        continue;
+      }
+      final byId = {for (final item in day.items) item.id: item};
+      final reordered = <ItineraryItem>[
+        for (final id in itemIds)
+          if (byId[id] != null) byId[id]!,
+        for (final item in day.items)
+          if (!itemIds.contains(item.id)) item,
+      ];
+      // The real backend re-hydrates fresh instances from JSON; mirror that so
+      // the test exercises the same object-identity churn the client sees.
+      return [
+        for (final item in reordered)
+          ItineraryItem(
+            id: item.id,
+            time: item.time,
+            place: item.place,
+            activity: item.activity,
+            note: item.note,
+            status: item.status,
+            point: item.point,
+            city: item.city,
+          ),
+      ];
+    }
     return [];
   }
 

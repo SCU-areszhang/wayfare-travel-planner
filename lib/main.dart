@@ -828,10 +828,7 @@ class WayfareApiClient implements WayfareBackend {
       if (city != null) 'city': city,
       if (reminder != null) 'reminder': reminder,
     };
-    final body = await _patch(
-      '/itineraries/$itineraryId/days/$dayId',
-      patch,
-    );
+    final body = await _patch('/itineraries/$itineraryId/days/$dayId', patch);
     return _dayFromJson(_asMap(body['item']));
   }
 
@@ -2022,64 +2019,67 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 720;
-        return Scaffold(
-          appBar: AppBar(
-            toolbarHeight: 68,
-            scrolledUnderElevation: 2,
-            titleSpacing: 16,
-            title: _AppHeader(title: _title),
-            actions: [
-              IconButton(
-                tooltip: 'Help',
-                icon: const Icon(Icons.help_outline),
-                onPressed: _showHelpCenter,
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 4, right: 16),
-                child: Tooltip(
-                  message: 'Open profile · ${widget.user.identifier}',
-                  child: InkResponse(
-                    radius: 24,
-                    onTap: () => setState(() => _tab = AppTab.profile),
-                    child: CircleAvatar(
-                      radius: 17,
-                      backgroundColor: Theme.of(
-                        context,
-                      ).colorScheme.primaryContainer,
-                      foregroundColor: Theme.of(
-                        context,
-                      ).colorScheme.onPrimaryContainer,
-                      child: Text(
-                        widget.user.initials,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
+    // Derive the responsive breakpoint from MediaQuery rather than wrapping the
+    // Scaffold in a LayoutBuilder. A LayoutBuilder here sits as an ancestor of
+    // the itinerary's ReorderableListView; starting a drag inserts an overlay
+    // proxy whose activation marks this LayoutBuilder for layout while it is
+    // still laying out — the "_RenderLayoutBuilder was mutated in performLayout"
+    // crash. For a full-window Scaffold the window width equals the maxWidth a
+    // LayoutBuilder would have reported.
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 68,
+        scrolledUnderElevation: 2,
+        titleSpacing: 16,
+        title: _AppHeader(title: _title),
+        actions: [
+          IconButton(
+            tooltip: 'Help',
+            icon: const Icon(Icons.help_outline),
+            onPressed: _showHelpCenter,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, right: 16),
+            child: Tooltip(
+              message: 'Open profile · ${widget.user.identifier}',
+              child: InkResponse(
+                radius: 24,
+                onTap: () => setState(() => _tab = AppTab.profile),
+                child: CircleAvatar(
+                  radius: 17,
+                  backgroundColor: Theme.of(
+                    context,
+                  ).colorScheme.primaryContainer,
+                  foregroundColor: Theme.of(
+                    context,
+                  ).colorScheme.onPrimaryContainer,
+                  child: Text(
+                    widget.user.initials,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
-            ],
-          ),
-          body: SafeArea(
-            child: Row(
-              children: [
-                if (wide) ...[
-                  _AdaptiveNavigationRail(
-                    selectedTab: _tab,
-                    onSelected: (tab) => setState(() => _tab = tab),
-                  ),
-                  const VerticalDivider(thickness: 1, width: 1),
-                ],
-                Expanded(child: _animatedBody),
-              ],
             ),
           ),
-          floatingActionButton: _floatingActionButton,
-          bottomNavigationBar: wide ? null : _bottomNavigationBar,
-        );
-      },
+        ],
+      ),
+      body: SafeArea(
+        child: Row(
+          children: [
+            if (wide) ...[
+              _AdaptiveNavigationRail(
+                selectedTab: _tab,
+                onSelected: (tab) => setState(() => _tab = tab),
+              ),
+              const VerticalDivider(thickness: 1, width: 1),
+            ],
+            Expanded(child: _animatedBody),
+          ],
+        ),
+      ),
+      floatingActionButton: _floatingActionButton,
+      bottomNavigationBar: wide ? null : _bottomNavigationBar,
     );
   }
 
@@ -2866,9 +2866,15 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
   // Manually re-order a stop within a single day. Stops are stored in an
   // explicit list order (the backend persists an `order` per item and does not
   // re-sort by time), so a drag here is authoritative and survives reloads.
-  // _sortRepositoryDays only re-sorts the *days* by date — it leaves each day's
-  // item order untouched — so calling it afterwards refreshes the map pins
-  // without fighting the new order.
+  //
+  // The local move is applied synchronously inside this setState — the point
+  // ReorderableListView expects its backing list to mutate. Crucially we keep
+  // the existing ItineraryItem instances (same objects, same ValueKeys) instead
+  // of swapping in fresh ones from the backend response: replacing the list
+  // children while the drop animation is still running is what tripped the web
+  // framework assertion (`_elements.contains(element)`). The backend persists
+  // the same order we already show, so there is nothing to reconcile on success
+  // — we only touch the list again to roll back if the request fails.
   Future<void> _reorderItem(
     ItineraryDay day,
     int oldIndex,
@@ -2908,12 +2914,9 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
       });
       return;
     }
-    setState(() {
-      day.items
-        ..clear()
-        ..addAll(reordered);
-      _sortRepositoryDays(_repository);
-    });
+    // The drag may have changed which stop sits at the top, so refresh the
+    // day's "current city" to follow the new first stop.
+    await _syncDayCity(day);
   }
 
   Future<void> _showMoveItemSheet(ItineraryItem item) async {
@@ -3628,9 +3631,10 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     return selectedDayIndex;
   }
 
-  // Lazy-update a day's city to match its first item (by time).
+  // Lazy-update a day's city to match the stop shown first in the list (the
+  // badge-#1 stop). Stops are usually added in time order so this is normally
+  // the earliest stop, but after a manual drag the list order wins.
   // When the day is empty the city becomes ''.
-  // Lazy-update a day's city to match its first stop (earliest by time).
   // The city is taken from the stop's stored `city` (captured when the stop
   // was added from a pick / search / template). Only when the first stop has
   // no stored city but does have coordinates do we fall back to a one-off
@@ -3644,9 +3648,11 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
     if (day.items.isEmpty) {
       newCity = '';
     } else {
-      final firstItem = day.items.reduce(
-        (a, b) => a.time.compareTo(b.time) <= 0 ? a : b,
-      );
+      // The day's city follows the stop shown at the top of the list (badge
+      // #1). Stops are normally added in time order, so this matches the
+      // earliest stop — but after a manual drag the list order is authoritative,
+      // so honour it rather than re-deriving an order from the times.
+      final firstItem = day.items.first;
       final storedCity = firstItem.city.trim();
       if (storedCity.isNotEmpty) {
         newCity = storedCity;
@@ -3785,11 +3791,7 @@ class _TravelPlannerShellState extends State<TravelPlannerShell> {
               }
               final day = targetDay;
               final deleted = await _runBackendCommand(
-                () => widget.backend.deleteItem(
-                  itineraryId,
-                  day.id,
-                  item.id,
-                ),
+                () => widget.backend.deleteItem(itineraryId, day.id, item.id),
               );
               if (deleted && mounted) {
                 setState(() {
@@ -5909,7 +5911,7 @@ class _ExploreScreenState extends State<_ExploreScreen> {
     );
 
     final label = TextPainter(
-        text: const TextSpan(
+      text: const TextSpan(
         text: 'Selected',
         style: TextStyle(
           color: Color(0xFF172033),
@@ -6470,8 +6472,8 @@ class _SavedScreenState extends State<_SavedScreen> {
             title: 'Saved itineraries',
             action: '${filteredTrips.length} shown',
           ),
-            const SizedBox(height: 12),
-            for (final trip in filteredTrips) ...[
+          const SizedBox(height: 12),
+          for (final trip in filteredTrips) ...[
             _SavedTripCard(
               trip: trip,
               selected:
@@ -7133,9 +7135,9 @@ class _SectionHeader extends StatelessWidget {
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w500),
           ),
         ),
         if (action != null)

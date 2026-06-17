@@ -132,6 +132,7 @@ class _ItineraryScreen extends StatelessWidget {
         const SizedBox(height: 16),
         for (var dayIndex = 0; dayIndex < days.length; dayIndex++) ...[
           _ItineraryDayRouteCard(
+            key: ValueKey(days[dayIndex].id),
             day: days[dayIndex],
             dayIndex: dayIndex,
             onDeleteDay: () => onDeleteDay(days[dayIndex]),
@@ -151,6 +152,7 @@ class _ItineraryScreen extends StatelessWidget {
 
 class _ItineraryDayRouteCard extends StatelessWidget {
   const _ItineraryDayRouteCard({
+    super.key,
     required this.day,
     required this.dayIndex,
     required this.onDeleteDay,

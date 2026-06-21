@@ -430,175 +430,164 @@ class _ItineraryItemCardState extends State<_ItineraryItemCard> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 132,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.surface.withValues(alpha: 0.42),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: scheme.outlineVariant),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final imageWidth = constraints.maxHeight * 4 / 3;
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 26,
-                            height: 26,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: scheme.secondaryContainer,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '${widget.index + 1}',
-                              style: Theme.of(context).textTheme.labelSmall
-                                  ?.copyWith(
-                                    color: scheme.onSecondaryContainer,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  widget.item.place,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodyMedium
-                                      ?.copyWith(fontWeight: FontWeight.w500),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${widget.item.time} | ${widget.item.activity}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.labelMedium
-                                      ?.copyWith(
-                                        color: scheme.onSurfaceVariant,
-                                      ),
-                                ),
-                                if (widget.item.note.trim().isNotEmpty) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    widget.item.note,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(
-                                          color: scheme.onSurfaceVariant,
-                                        ),
-                                  ),
-                                ],
-                                const Spacer(),
-                                Row(
-                                  children: [
-                                    IconButton(
-                                      tooltip: 'Edit',
-                                      onPressed: widget.onEdit,
-                                      icon: const Icon(Icons.edit_outlined),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Open map',
-                                      onPressed: widget.onOpenMap,
-                                      icon: const Icon(Icons.map_outlined),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                    PopupMenuButton<_ItemAction>(
-                                      tooltip: 'More actions',
-                                      icon: const Icon(Icons.more_vert),
-                                      onSelected: (action) {
-                                        switch (action) {
-                                          case _ItemAction.move:
-                                            widget.onMove();
-                                          case _ItemAction.duplicate:
-                                            widget.onDuplicate();
-                                          case _ItemAction.delete:
-                                            widget.onDelete();
-                                        }
-                                      },
-                                      itemBuilder: (_) => const [
-                                        PopupMenuItem(
-                                          value: _ItemAction.move,
-                                          child: ListTile(
-                                            dense: true,
-                                            contentPadding: EdgeInsets.zero,
-                                            leading: Icon(
-                                              Icons.drive_file_move_outlined,
-                                            ),
-                                            title: Text('Move to date'),
-                                          ),
-                                        ),
-                                        PopupMenuItem(
-                                          value: _ItemAction.duplicate,
-                                          child: ListTile(
-                                            dense: true,
-                                            contentPadding: EdgeInsets.zero,
-                                            leading: Icon(Icons.copy_outlined),
-                                            title: Text('Duplicate'),
-                                          ),
-                                        ),
-                                        PopupMenuItem(
-                                          value: _ItemAction.delete,
-                                          child: ListTile(
-                                            dense: true,
-                                            contentPadding: EdgeInsets.zero,
-                                            leading: Icon(Icons.delete_outline),
-                                            title: Text('Delete'),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    Tooltip(
-                                      message: 'Drag to move within this date',
-                                      child: ReorderableDragStartListener(
-                                        index: widget.index,
-                                        child: SizedBox.square(
-                                          dimension: 40,
-                                          child: Icon(
-                                            Icons.drag_indicator,
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+    return Card.filled(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: TravelImageFrame(
+              imageUrl: _imageUrl,
+              semanticLabel: widget.item.place,
+              fallbackIcon: Icons.place_outlined,
+              aspectRatio: null,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 22,
+                      height: 22,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: scheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${widget.index + 1}',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSecondaryContainer,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.item.place,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Padding(
+                  padding: const EdgeInsets.only(left: 30),
+                  child: Text(
+                    '${widget.item.time} | ${widget.item.activity}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                if (widget.item.note.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 30),
+                    child: Text(
+                      widget.item.note,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ),
-                  SizedBox(
-                    width: imageWidth,
-                    child: TravelImageFrame(
-                      imageUrl: _imageUrl,
-                      semanticLabel: widget.item.place,
-                      fallbackIcon: Icons.place_outlined,
-                      aspectRatio: null,
-                    ),
-                  ),
                 ],
-              );
-            },
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Edit',
+                      onPressed: widget.onEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    IconButton(
+                      tooltip: 'Open map',
+                      onPressed: widget.onOpenMap,
+                      icon: const Icon(Icons.map_outlined),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    PopupMenuButton<_ItemAction>(
+                      tooltip: 'More actions',
+                      icon: const Icon(Icons.more_vert),
+                      onSelected: (action) {
+                        switch (action) {
+                          case _ItemAction.move:
+                            widget.onMove();
+                          case _ItemAction.duplicate:
+                            widget.onDuplicate();
+                          case _ItemAction.delete:
+                            widget.onDelete();
+                        }
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: _ItemAction.move,
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.drive_file_move_outlined,
+                            ),
+                            title: Text('Move to date'),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _ItemAction.duplicate,
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.copy_outlined),
+                            title: Text('Duplicate'),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _ItemAction.delete,
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.delete_outline),
+                            title: Text('Delete'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Tooltip(
+                      message: 'Drag to move within this date',
+                      child: ReorderableDragStartListener(
+                        index: widget.index,
+                        child: SizedBox.square(
+                          dimension: 36,
+                          child: Icon(
+                            Icons.drag_indicator,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

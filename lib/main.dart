@@ -4372,7 +4372,7 @@ class _MetricPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: filled
             ? scheme.primaryContainer
@@ -4384,17 +4384,18 @@ class _MetricPill extends StatelessWidget {
         children: [
           Icon(
             icon,
-            size: 16,
+            size: 14,
             color: filled ? scheme.onPrimaryContainer : scheme.onSurfaceVariant,
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           Text(
             label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: filled
                   ? scheme.onPrimaryContainer
                   : scheme.onSurfaceVariant,
               fontWeight: FontWeight.w500,
+              fontSize: 11,
             ),
           ),
         ],
@@ -4824,7 +4825,7 @@ class _HomeScreenState extends State<_HomeScreen> {
                           _CityWalkStopPreview(index: index, stop: stop),
                 ),
                 if (template != _cityWalkTemplates.last)
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
               ],
             ],
           ),
@@ -4920,86 +4921,73 @@ class _HomeSearchResultCard extends StatelessWidget {
     final subtitle = _cleanSearchSubtitle(result.subtitle);
     final intro = result.intro.trim();
     final detail = intro.isEmpty ? subtitle : '$subtitle · $intro';
-    return SizedBox(
+    return Card.filled(
       key: ValueKey('home-search-result-card-${result.id}'),
-      height: 112,
-      child: Material(
-        color: scheme.surface.withValues(alpha: 0.42),
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: scheme.outlineVariant),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final imageWidth = constraints.maxHeight * 4 / 3;
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: TravelImageFrame(
+              imageUrl: result.imageUrl,
+              semanticLabel: result.name,
+              fallbackIcon: Icons.travel_explore_outlined,
+              aspectRatio: null,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                result.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleSmall
-                                    ?.copyWith(fontWeight: FontWeight.w500),
-                              ),
-                            ),
-                            if (shouldShowLevel) ...[
-                              const SizedBox(width: 6),
-                              _CompactLabel(text: result.level),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 3),
-                        if (detail.isNotEmpty)
-                          Expanded(
-                            child: Text(
-                              detail,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
-                            ),
-                          )
-                        else
-                          const Spacer(),
-                        SizedBox.square(
-                          dimension: 34,
-                          child: IconButton.filled(
-                            key: ValueKey('search-result-add-${result.id}'),
-                            tooltip: 'Add to itinerary',
-                            padding: EdgeInsets.zero,
-                            iconSize: 20,
-                            onPressed: onAdd,
-                            icon: const Icon(Icons.add),
-                          ),
-                        ),
-                      ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        result.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    if (shouldShowLevel) ...[
+                      const SizedBox(width: 6),
+                      _CompactLabel(text: result.level),
+                    ],
+                  ],
+                ),
+                if (detail.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
-                ),
+                ],
+                const SizedBox(height: 8),
                 SizedBox(
-                  width: imageWidth,
-                  child: TravelImageFrame(
-                    imageUrl: result.imageUrl,
-                    semanticLabel: result.name,
-                    fallbackIcon: Icons.travel_explore_outlined,
-                    aspectRatio: null,
+                  width: 32,
+                  height: 32,
+                  child: IconButton.filled(
+                    key: ValueKey('search-result-add-${result.id}'),
+                    tooltip: 'Add to itinerary',
+                    padding: EdgeInsets.zero,
+                    iconSize: 18,
+                    onPressed: onAdd,
+                    icon: const Icon(Icons.add),
                   ),
                 ),
               ],
-            );
-          },
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -5166,22 +5154,23 @@ class _CityWalkStopPreview extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 26,
-          height: 26,
+          width: 20,
+          height: 20,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: scheme.secondaryContainer,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
           ),
           child: Text(
             '$index',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSecondaryContainer,
               fontWeight: FontWeight.w600,
+              fontSize: 10,
             ),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -5190,16 +5179,17 @@ class _CityWalkStopPreview extends StatelessWidget {
                 stop.place,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
               ),
               Text(
                 '${stop.time} | ${stop.activity}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: scheme.onSurfaceVariant,
+                  fontSize: 10,
                 ),
               ),
             ],
@@ -5246,9 +5236,11 @@ int _travelImageResultScore(TravelSearchResult result, String query) {
     score += 12;
   }
   if (name == normalizedQuery) {
-    score += 10;
-  } else if (name.contains(normalizedQuery) || normalizedQuery.contains(name)) {
+    score += 100;
+  } else if (name.contains(normalizedQuery)) {
     score += 5;
+  } else if (normalizedQuery.contains(name)) {
+    score -= 10;
   }
   if (RegExp(r'地名地址|交通设施|停车场|公交车站|生活服务|售票处').hasMatch(combined)) {
     score -= 30;

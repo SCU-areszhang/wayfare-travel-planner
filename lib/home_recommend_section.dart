@@ -465,90 +465,77 @@ class FeaturedScenicCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 112,
-      child: Material(
-        color: scheme.surface.withValues(alpha: 0.42),
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: scheme.outlineVariant),
-        ),
-        child: InkWell(
-          onTap: busy ? null : onSelected,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final imageWidth = constraints.maxHeight * 4 / 3;
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Card.filled(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        onTap: busy ? null : onSelected,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: TravelImageFrame(
+                imageUrl: imageUrl,
+                semanticLabel: spot.name,
+                fallbackIcon: spot.icon,
+                aspectRatio: null,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            spot.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w500),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${spot.city} · ${spot.level} · ${spot.tags.join(" / ")}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelMedium
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                          ),
-                          const SizedBox(height: 2),
-                          Expanded(
-                            child: Text(
-                              spot.summary,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ),
-                          SizedBox.square(
-                            dimension: 34,
-                            child: IconButton.filled(
-                              key: ValueKey(
-                                'featured-scenic-add-${spot.query}',
-                              ),
-                              tooltip: 'Add scenic spot',
-                              padding: EdgeInsets.zero,
-                              iconSize: 20,
-                              onPressed: busy ? null : onSelected,
-                              icon: busy
-                                  ? const SizedBox.square(
-                                      dimension: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.add),
-                            ),
-                          ),
-                        ],
-                      ),
+                  Text(
+                    spot.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${spot.city} · ${spot.level} · ${spot.tags.join(" / ")}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    spot.summary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
                   SizedBox(
-                    width: imageWidth,
-                    child: TravelImageFrame(
-                      imageUrl: imageUrl,
-                      semanticLabel: spot.name,
-                      fallbackIcon: spot.icon,
-                      aspectRatio: null,
+                    width: 32,
+                    height: 32,
+                    child: IconButton.filled(
+                      key: ValueKey('featured-scenic-add-${spot.query}'),
+                      tooltip: 'Add scenic spot',
+                      padding: EdgeInsets.zero,
+                      iconSize: 18,
+                      onPressed: busy ? null : onSelected,
+                      icon: busy
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.add),
                     ),
                   ),
                 ],
-              );
-            },
-          ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -584,54 +571,63 @@ class CityWalkTemplateCard extends StatelessWidget {
     return Card.filled(
       color: scheme.surfaceContainerHighest.withValues(alpha: 0.52),
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TravelImageFrame(
-            imageUrl: imageUrl,
-            semanticLabel: template.title,
-            fallbackIcon: Icons.directions_walk,
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: TravelImageFrame(
+              imageUrl: imageUrl,
+              semanticLabel: template.title,
+              fallbackIcon: Icons.directions_walk,
+              aspectRatio: null,
+            ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            template.title,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            template.summary,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                          ),
-                        ],
+                      child: Text(
+                        template.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    FilledButton.tonalIcon(
-                      key: ValueKey('copy-citywalk-${template.id}'),
-                      onPressed: onCopy,
-                      icon: const Icon(Icons.content_copy),
-                      label: const Text('Copy'),
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      height: 28,
+                      child: IconButton.filled(
+                        key: ValueKey('copy-citywalk-${template.id}'),
+                        onPressed: onCopy,
+                        iconSize: 15,
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Copy CityWalk',
+                        icon: const Icon(Icons.content_copy),
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 2),
+                Text(
+                  template.summary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 6),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: 6,
+                  runSpacing: 4,
                   children: [
                     metricPillBuilder(
                       icon: Icons.location_city_outlined,
@@ -648,26 +644,19 @@ class CityWalkTemplateCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Divider(color: scheme.outlineVariant),
                 const SizedBox(height: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (
-                      var index = 0;
-                      index < previewStops.length;
-                      index++
-                    ) ...[
-                      stopPreviewBuilder(
-                        index: index + 1,
-                        stop: previewStops[index],
-                      ),
-                      if (index != previewStops.length - 1)
-                        const SizedBox(height: 8),
-                    ],
-                  ],
-                ),
+                for (
+                  var index = 0;
+                  index < previewStops.length;
+                  index++
+                ) ...[
+                  stopPreviewBuilder(
+                    index: index + 1,
+                    stop: previewStops[index],
+                  ),
+                  if (index != previewStops.length - 1)
+                    const SizedBox(height: 4),
+                ],
               ],
             ),
           ),
@@ -693,22 +682,23 @@ class CityWalkStopPreview extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 26,
-          height: 26,
+          width: 20,
+          height: 20,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: scheme.secondaryContainer,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
           ),
           child: Text(
             '$index',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSecondaryContainer,
               fontWeight: FontWeight.w600,
+              fontSize: 10,
             ),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -717,16 +707,17 @@ class CityWalkStopPreview extends StatelessWidget {
                 stop.place,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
               ),
               Text(
                 '${stop.time} | ${stop.activity}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: scheme.onSurfaceVariant,
+                  fontSize: 10,
                 ),
               ),
             ],
